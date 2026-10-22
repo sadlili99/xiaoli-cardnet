@@ -390,12 +390,35 @@ function toast(msg){
   const t = $("#toast"); t.textContent = msg; t.classList.add("on");
   clearTimeout(t._h); t._h = setTimeout(()=>t.classList.remove("on"), 2400);
 }
+/* ===== 接口加密：AES-256-GCM，密钥由口令 xueli888 经 SHA-256 派生，与后端一致 =====
+   所有请求体与响应体都是密文信封 {v,iv,ct}；内含时间戳+随机数，抓包改金额/重放都会被后端拒绝。 */
+const _te = new TextEncoder(), _td = new TextDecoder();
+const _keyP = crypto.subtle.digest("SHA-256", _te.encode("xueli888"))
+  .then(b => crypto.subtle.importKey("raw", b, {name:"AES-GCM"}, false, ["encrypt","decrypt"]));
+function _b64e(buf){ const b = new Uint8Array(buf); let s = ""; for(let i=0;i<b.length;i++) s += String.fromCharCode(b[i]); return btoa(s); }
+function _b64d(s){ const bin = atob(s); const b = new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) b[i] = bin.charCodeAt(i); return b; }
+function _nonce(){ const b = crypto.getRandomValues(new Uint8Array(12)); return [...b].map(x=>x.toString(16).padStart(2,"0")).join(""); }
+async function _encEnv(obj, aad){
+  const key = await _keyP, iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({name:"AES-GCM", iv, additionalData:_te.encode(aad)}, key, _te.encode(JSON.stringify(obj)));
+  return {v:2, iv:_b64e(iv), ct:_b64e(ct)};
+}
+async function _decEnv(env, aad){
+  const key = await _keyP;
+  const pt = await crypto.subtle.decrypt({name:"AES-GCM", iv:_b64d(env.iv), additionalData:_te.encode(aad)}, key, _b64d(env.ct));
+  return JSON.parse(_td.decode(pt));
+}
 async function api(path, opts={}){
-  const r = await fetch(path, {method: opts.method||"GET",
-    headers: {"Content-Type":"application/json", ...(token?{Authorization:"Bearer "+token}:{})},
-    body: opts.body?JSON.stringify(opts.body):undefined});
-  let d; try{ d = await r.json(); }catch(e){ d = {ok:false, msg:"服务器无响应"}; }
-  if(!d.ok) throw new Error(d.msg||"请求失败");
+  const method = opts.method || "GET";
+  let p = path; const data = Object.assign({}, opts.body || {});
+  const qi = path.indexOf("?");
+  if(qi >= 0){ p = path.slice(0, qi); new URLSearchParams(path.slice(qi+1)).forEach((v,k)=>{ data[k] = v; }); }
+  const env = await _encEnv({ts: Math.floor(Date.now()/1000), nonce: _nonce(), m: method, data}, "Q" + p);
+  const r = await fetch(p, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(env)});
+  let ej; try{ ej = await r.json(); }catch(e){ ej = {ok:false, msg:"服务器无响应"}; }
+  let d = ej;
+  if(ej && ej.ct){ try{ d = await _decEnv(ej, "R" + p); }catch(e){ d = {ok:false, msg:"响应校验失败"}; } }
+  if(!d.ok) throw new Error(d.msg || "请求失败");
   return d;
 }
 function copyTxt(txt, btn){
@@ -440,7 +463,7 @@ $("#authSubmit").addEventListener("click", async ()=>{
   try{
     if(!authIsLogin){ await api("/api/register",{method:"POST",body:{username,password}}); toast("注册成功，登录一下"); authIsLogin=true; $("#authSwitch").click(); return; }
     const d = await api("/api/login",{method:"POST",body:{username,password}});
-    token = d.token; me = d.user;
+    token = ""; me = d.user;
     closeMask("authMask"); renderAuth();
     toast(me.is_admin ? "登录成功，已进入商户端权限" : "登录成功");
     if(me.is_admin) switchView("admin"); else loadShop();

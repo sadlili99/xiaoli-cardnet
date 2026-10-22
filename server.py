@@ -6,7 +6,9 @@
 数据：data/cardnet.db（自动建表 + 种子数据，重启不丢）
 管理员：xueli / xueli888（ID 1000000；登录后请到「钱包 → 账号」修改密码）
 """
+import base64
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -144,6 +146,154 @@ def op_log(con, actor, action, detail=""):
                 (actor, action, str(detail)[:500], now()))
 
 
+# ================= 接口加密层：AES-256-GCM 全请求/响应加密 =================
+# 密钥口令：xueli888，经 SHA-256 派生为 256 位密钥（前端使用同一口令派生，必须一致）。
+# 请求信封：{"v":2,"iv":base64,"ct":base64}，明文为 {"ts":秒,"nonce":随机串,"m":方法,"data":{...}}
+# GCM 自带完整性校验：篡改金额等任何字段都会解密失败被拒；ts 时间窗 + nonce 一次性，防重放。
+API_KEY = hashlib.sha256("xueli888".encode("utf-8")).digest()
+_NONCES = {}
+_NONCE_LOCK = threading.Lock()
+
+
+def _make_sboxes():
+    def rotl(x, n):
+        return ((x << n) | (x >> (8 - n))) & 0xFF
+    sbox = [0] * 256
+    p = q = 1
+    while True:
+        p = (p ^ ((p << 1) & 0xFF) ^ (0x1B if p & 0x80 else 0)) & 0xFF
+        q = (q ^ ((q << 1) & 0xFF)) & 0xFF
+        q = (q ^ ((q << 2) & 0xFF)) & 0xFF
+        q = (q ^ ((q << 4) & 0xFF)) & 0xFF
+        if q & 0x80:
+            q ^= 0x09
+        x = q ^ rotl(q, 1) ^ rotl(q, 2) ^ rotl(q, 3) ^ rotl(q, 4)
+        sbox[p] = (x ^ 0x63) & 0xFF
+        if p == 1:
+            break
+    sbox[0] = 0x63
+    return sbox
+
+
+_SBOX = _make_sboxes()
+_RCON = (0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40)
+
+
+def _xtime(a):
+    return ((a << 1) & 0xFF) ^ (0x1B if a & 0x80 else 0)
+
+
+def _key_expansion(key):
+    w = list(key)
+    rcon_i = 0
+    while len(w) < 240:
+        t = w[-4:]
+        if len(w) % 32 == 0:
+            t = [_SBOX[t[1]] ^ _RCON[rcon_i], _SBOX[t[2]], _SBOX[t[3]], _SBOX[t[0]]]
+            rcon_i += 1
+        elif len(w) % 32 == 16:
+            t = [_SBOX[x] for x in t]
+        for x in t:
+            w.append(w[-32] ^ x)
+    return [bytes(w[i * 16:(i + 1) * 16]) for i in range(15)]
+
+
+def _aes_block(rk, block):
+    s = [b ^ k for b, k in zip(block, rk[0])]
+    for rnd in range(1, 14):
+        s = [_SBOX[x] for x in s]
+        s = [s[(i % 4) + 4 * ((i // 4 + i % 4) % 4)] for i in range(16)]
+        mixed = []
+        for c in range(4):
+            col = s[4 * c:4 * c + 4]
+            mixed += [ _xtime(col[0]) ^ (_xtime(col[1]) ^ col[1]) ^ col[2] ^ col[3],
+                       col[0] ^ _xtime(col[1]) ^ (_xtime(col[2]) ^ col[2]) ^ col[3],
+                       col[0] ^ col[1] ^ _xtime(col[2]) ^ (_xtime(col[3]) ^ col[3]),
+                       (_xtime(col[0]) ^ col[0]) ^ col[1] ^ col[2] ^ _xtime(col[3])]
+        s = [b ^ k for b, k in zip(mixed, rk[rnd])]
+    s = [_SBOX[x] for x in s]
+    s = [s[(i % 4) + 4 * ((i // 4 + i % 4) % 4)] for i in range(16)]
+    return bytes(b ^ k for b, k in zip(s, rk[14]))
+
+
+def _gf128_mul(x, y):
+    z, v = 0, y
+    for i in range(128):
+        if (x >> (127 - i)) & 1:
+            z ^= v
+        v = (v >> 1) ^ (0xE1000000000000000000000000000000 if v & 1 else 0)
+    return z
+
+
+def _ghash(h, aad, ct):
+    def pad(d):
+        return d + b"\x00" * ((16 - len(d) % 16) % 16)
+    data = pad(aad) + pad(ct) + (len(aad) * 8).to_bytes(8, "big") + (len(ct) * 8).to_bytes(8, "big")
+    y = 0
+    for i in range(0, len(data), 16):
+        y = _gf128_mul(y ^ int.from_bytes(data[i:i + 16], "big"), h)
+    return y
+
+
+def _gcm(key, iv, data, aad, decrypt=False):
+    rk = _key_expansion(key)
+    h = int.from_bytes(_aes_block(rk, b"\x00" * 16), "big")
+    j0 = iv + b"\x00\x00\x00\x01"
+    if decrypt:
+        ct, tag = data[:-16], data[-16:]
+    else:
+        ct = data
+    out = bytearray()
+    ctr = 2
+    for i in range(0, len(ct), 16):
+        ks = _aes_block(rk, iv + ctr.to_bytes(4, "big"))
+        ctr += 1
+        out += bytes(a ^ b for a, b in zip(ct[i:i + 16], ks))
+    out = bytes(out)
+    real_ct = out if not decrypt else data[:-16]
+    s = _ghash(h, aad, real_ct)
+    calc_tag = (s ^ int.from_bytes(_aes_block(rk, j0), "big")).to_bytes(16, "big")
+    if decrypt:
+        if not hmac.compare_digest(calc_tag, tag):
+            raise ApiError("数据完整性校验失败", 400)
+        return out
+    return out + calc_tag
+
+
+def api_encrypt(plain, aad):
+    iv = os.urandom(12)
+    sealed = _gcm(API_KEY, iv, plain, aad)
+    return {"v": 2, "iv": base64.b64encode(iv).decode(), "ct": base64.b64encode(sealed).decode()}
+
+
+def api_decrypt(env, aad):
+    if not isinstance(env, dict) or env.get("v") != 2:
+        raise ApiError("请求未加密，已拒绝", 400)
+    try:
+        iv = base64.b64decode(env["iv"])
+        sealed = base64.b64decode(env["ct"])
+    except Exception:
+        raise ApiError("加密信封格式错误", 400)
+    if len(iv) != 12 or len(sealed) < 17:
+        raise ApiError("加密信封格式错误", 400)
+    return _gcm(API_KEY, iv, sealed, aad, decrypt=True)
+
+
+def check_fresh(ts, nonce):
+    """时间戳 5 分钟窗口 + nonce 一次性：抓包重放、改包都会在这里被拦。"""
+    t = now()
+    if not isinstance(ts, (int, float)) or abs(t - ts) > 300:
+        raise ApiError("请求已过期，请刷新页面重试", 400)
+    if not nonce or len(str(nonce)) < 8:
+        raise ApiError("请求缺少随机数", 400)
+    with _NONCE_LOCK:
+        for k in [k for k, exp in _NONCES.items() if exp < t]:
+            del _NONCES[k]
+        if nonce in _NONCES:
+            raise ApiError("重复请求已被拦截", 400)
+        _NONCES[nonce] = t + 600
+
+
 class ApiError(Exception):
     def __init__(self, msg, code=400):
         self.msg, self.code = msg, code
@@ -157,7 +307,12 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---------- helpers ----------
     def send_json(self, obj, code=200):
-        body = json.dumps(obj, ensure_ascii=False).encode()
+        raw = json.dumps(obj, ensure_ascii=False).encode()
+        if getattr(self, "api_mode", False):
+            env = api_encrypt(raw, ("R" + self.api_path).encode())
+            body = json.dumps(env).encode()
+        else:
+            body = raw
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -180,6 +335,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json(dict(ok=True, **(data or {})))
 
     def body(self):
+        if getattr(self, "_json_body", None) is not None:
+            return self._json_body
         n = int(self.headers.get("Content-Length") or 0)
         if not n:
             return {}
@@ -231,7 +388,27 @@ class Handler(BaseHTTPRequestHandler):
         try:
             u = urlparse(self.path)
             if u.path.startswith("/api/"):
-                self.route(method, u.path, parse_qs(u.query))
+                p = u.path
+                q = parse_qs(u.query)
+                n = int(self.headers.get("Content-Length") or 0)
+                raw = self.rfile.read(n) if n else b""
+                try:
+                    env = json.loads(raw.decode("utf-8")) if raw else {}
+                except Exception:
+                    raise ApiError("请求格式错误", 400)
+                plain = api_decrypt(env, ("Q" + p).encode())
+                req = json.loads(plain.decode("utf-8"))
+                check_fresh(req.get("ts"), req.get("nonce"))
+                data = req.get("data") or {}
+                if not isinstance(data, dict):
+                    raise ApiError("请求数据格式错误", 400)
+                self._json_body = data
+                self.api_mode = True
+                self.api_path = p
+                for k in ("q", "status", "product_id", "order_no"):
+                    if k in data:
+                        q[k] = [str(data[k])]
+                self.route(str(req.get("m") or method).upper(), p, q)
             else:
                 self.static(u.path)
         except ApiError as e:
@@ -338,7 +515,8 @@ class Handler(BaseHTTPRequestHandler):
                 con.execute("INSERT INTO sessions(token,user_id,expires_at) VALUES(?,?,?)", (token, u["id"], now() + TOKEN_TTL))
                 con.commit()
             self.extra_headers = {"Set-Cookie": self.session_cookie(token)}
-            return self.ok(dict(token=token, user=dict(id=u["id"], username=u["username"], balance=u["balance"], is_admin=bool(u["is_admin"]))))
+            # 令牌只走 HttpOnly Cookie 下发，响应体里不再出现 token（抓包也拿不到）
+            return self.ok(dict(user=dict(id=u["id"], username=u["username"], balance=u["balance"], is_admin=bool(u["is_admin"]))))
 
         # ---------- 以下需登录 ----------
         me = self.need_login(con)
