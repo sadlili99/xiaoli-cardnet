@@ -100,6 +100,11 @@ def init_db():
     CREATE TABLE IF NOT EXISTS op_logs(
       id INTEGER PRIMARY KEY AUTOINCREMENT, actor TEXT NOT NULL, action TEXT NOT NULL,
       detail TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS messages(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
+      sender TEXT NOT NULL, type TEXT NOT NULL DEFAULT 'text', content TEXT NOT NULL,
+      seen_admin INTEGER NOT NULL DEFAULT 0, seen_user INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL);
     """)
     if not con.execute("SELECT 1 FROM users WHERE username='xueli'").fetchone():
         old = con.execute("SELECT id FROM users WHERE username='admin'").fetchone()
@@ -405,7 +410,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json_body = data
                 self.api_mode = True
                 self.api_path = p
-                for k in ("q", "status", "product_id", "order_no"):
+                for k in ("q", "status", "product_id", "order_no", "user_id"):
                     if k in data:
                         q[k] = [str(data[k])]
                 self.route(str(req.get("m") or method).upper(), p, q)
@@ -625,8 +630,72 @@ class Handler(BaseHTTPRequestHandler):
                 con.commit()
             return self.ok(dict(balance=nb, msg="充值成功"))
 
+        # ---------- 站内聊天（用户 ↔ 管理员） ----------
+        if p == "/api/messages" and m == "GET":
+            rows = con.execute("SELECT * FROM messages WHERE user_id=? ORDER BY id LIMIT 300", (me["id"],)).fetchall()
+            with LOCK:
+                con.execute("UPDATE messages SET seen_user=1 WHERE user_id=? AND sender='admin'", (me["id"],)); con.commit()
+            return self.ok(dict(list=[dict(id=r["id"], sender=r["sender"], type=r["type"], content=r["content"],
+                                           time=fmt_time(r["created_at"])) for r in rows]))
+        if p == "/api/messages" and m == "POST":
+            b = self.body()
+            content = str(b.get("content") or "").strip()
+            if not content:
+                raise ApiError("消息不能为空")
+            if len(content) > 1000:
+                raise ApiError("消息太长（最多 1000 字）")
+            with LOCK:
+                cur = con.execute("INSERT INTO messages(user_id,sender,type,content,seen_admin,seen_user,created_at) VALUES(?,'user','text',?,0,1,?)",
+                                  (me["id"], content, now()))
+                con.commit()
+            return self.ok(dict(id=cur.lastrowid))
+        if p == "/api/messages/unread" and m == "GET":
+            n = con.execute("SELECT COUNT(*) c FROM messages WHERE user_id=? AND sender='admin' AND seen_user=0", (me["id"],)).fetchone()["c"]
+            return self.ok(dict(unread=n))
+
         # ---------- 管理后台 ----------
         admin = self.need_admin(con)
+        if p == "/api/admin/conversations" and m == "GET":
+            rows = con.execute("""SELECT u.id, u.username,
+                (SELECT content FROM messages WHERE user_id=u.id ORDER BY id DESC LIMIT 1) last_content,
+                (SELECT type FROM messages WHERE user_id=u.id ORDER BY id DESC LIMIT 1) last_type,
+                (SELECT created_at FROM messages WHERE user_id=u.id ORDER BY id DESC LIMIT 1) last_at,
+                (SELECT COUNT(*) FROM messages WHERE user_id=u.id AND sender='user' AND seen_admin=0) unread
+                FROM users u WHERE EXISTS (SELECT 1 FROM messages WHERE user_id=u.id)
+                ORDER BY last_at DESC""").fetchall()
+            return self.ok(dict(list=[dict(id=r["id"], username=r["username"], last_content=r["last_content"],
+                                           last_type=r["last_type"], last_time=fmt_time(r["last_at"] or 0),
+                                           unread=r["unread"]) for r in rows]))
+        if p == "/api/admin/messages" and m == "GET":
+            uid = int(q.get("user_id", ["0"])[0] or 0)
+            rows = con.execute("SELECT * FROM messages WHERE user_id=? ORDER BY id LIMIT 300", (uid,)).fetchall()
+            with LOCK:
+                con.execute("UPDATE messages SET seen_admin=1 WHERE user_id=? AND sender='user'", (uid,)); con.commit()
+            u = con.execute("SELECT id,username,balance FROM users WHERE id=?", (uid,)).fetchone()
+            return self.ok(dict(list=[dict(id=r["id"], sender=r["sender"], type=r["type"], content=r["content"],
+                                           time=fmt_time(r["created_at"])) for r in rows],
+                                peer=dict(id=u["id"], username=u["username"], balance=u["balance"]) if u else None))
+        if p == "/api/admin/messages" and m == "POST":
+            b = self.body()
+            uid = int(b.get("user_id") or 0)
+            typ = str(b.get("type") or "text")
+            content = str(b.get("content") or "").strip()
+            if not con.execute("SELECT 1 FROM users WHERE id=?", (uid,)).fetchone():
+                raise ApiError("用户不存在", 404)
+            if typ == "image":
+                if content not in ("/pay-wechat.jpg", "/pay-alipay.jpg"):
+                    raise ApiError("只能发送系统收款码")
+            else:
+                if not content:
+                    raise ApiError("消息不能为空")
+                if len(content) > 1000:
+                    raise ApiError("消息太长（最多 1000 字）")
+                typ = "text"
+            with LOCK:
+                cur = con.execute("INSERT INTO messages(user_id,sender,type,content,seen_admin,seen_user,created_at) VALUES(?,'admin',?,?,1,0,?)",
+                                  (uid, typ, content, now()))
+                con.commit()
+            return self.ok(dict(id=cur.lastrowid))
         if p == "/api/admin/stats" and m == "GET":
             lt = time.localtime()
             day0 = int(time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, -1)))

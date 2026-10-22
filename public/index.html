@@ -188,6 +188,19 @@ table.tb td{padding:10px 8px;border-bottom:1px solid var(--line);vertical-align:
 .toast.on{opacity:1;transform:translateX(-50%)}
 footer{padding:26px 0 8px;text-align:center;color:var(--ink3);font-size:12px;line-height:1.7}
 @media(max-width:560px){ .search{display:none} .grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))} .cover{height:88px} .ptitle{font-size:23px} }
+/* ===== 站内聊天 ===== */
+.chatlist{max-height:52vh;overflow-y:auto;padding:10px 2px 4px;display:flex;flex-direction:column;gap:10px}
+.msgrow{display:flex;flex-direction:column;max-width:82%}
+.msgrow.me{align-self:flex-end;align-items:flex-end}
+.msgrow.them{align-self:flex-start;align-items:flex-start}
+.bubble{padding:9px 12px;border-radius:16px;font-size:14.5px;line-height:1.55;word-break:break-word;white-space:pre-wrap;text-align:left}
+.msgrow.me .bubble{background:var(--blue);color:#fff;border-bottom-right-radius:6px}
+.msgrow.them .bubble{background:var(--surface2);color:var(--ink);border-bottom-left-radius:6px}
+.bubble img.chatimg{max-width:210px;width:100%;border-radius:10px;display:block}
+.msgtime{font-size:11px;color:var(--ink3);margin-top:3px;padding:0 4px}
+.chatbar{display:flex;gap:8px;margin-top:12px}
+.chatbar .inp{flex:1}
+.unreaddot{min-width:18px;height:18px;border-radius:9px;background:#ff3b30;color:#fff;font-size:11px;display:inline-flex;align-items:center;justify-content:center;padding:0 5px;margin-left:6px;vertical-align:2px}
 </style>
 </head>
 <body>
@@ -200,6 +213,10 @@ footer{padding:26px 0 8px;text-align:center;color:var(--ink3);font-size:12px;lin
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--ink3)" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.8-3.8"/></svg>
       <input id="searchInp" placeholder="搜索商品">
     </div>
+    <button class="iconbtn press" id="chatBtn" title="联系管理员" style="display:none;position:relative">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.5 8.5 0 01-8.5 8.5c-1.5 0-3-.4-4.2-1.1L3 20l1.1-5.3A8.5 8.5 0 1121 11.5z"/></svg>
+      <span id="chatDot" style="display:none;position:absolute;top:1px;right:1px;min-width:16px;height:16px;border-radius:8px;background:#ff3b30;color:#fff;font-size:10px;line-height:16px;text-align:center;padding:0 4px"></span>
+    </button>
     <button class="iconbtn press" id="themeBtn" title="外观：跟随系统 / 浅色 / 深色">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 010 17z" fill="currentColor" stroke="none"/></svg>
     </button>
@@ -256,6 +273,7 @@ footer{padding:26px 0 8px;text-align:center;color:var(--ink3);font-size:12px;lin
         <div class="small mt10">本站不开放自助充值。把你的用户 ID 发给管理员，管理员给你添加余额后，刷新本页就能看到。</div>
         <div class="flex mt10"><span>我的 ID：<b class="num" id="myIdBig" style="font-size:18px;color:var(--ink)">—</b></span>
         <button class="copybtn press" id="copyIdBtn">复制 ID</button></div>
+        <button class="btn press" id="contactBtn" style="margin-top:12px;width:100%">联系管理员充值</button>
       </div>
     </div>
     <div class="panel glass">
@@ -283,6 +301,7 @@ footer{padding:26px 0 8px;text-align:center;color:var(--ink3);font-size:12px;lin
       <button class="subtab press" data-at="cards">卡密库存</button>
       <button class="subtab press" data-at="orders">订单</button>
       <button class="subtab press" data-at="users">用户与余额</button>
+      <button class="subtab press" data-at="chats">客服消息<span id="chatBadge"></span></button>
       <button class="subtab press" data-at="cats">分类与公告</button>
       <button class="subtab press" data-at="logs">操作日志</button>
     </div>
@@ -347,6 +366,20 @@ footer{padding:26px 0 8px;text-align:center;color:var(--ink3);font-size:12px;lin
       <button class="btn ghost press grow" data-close="okMask">继续逛</button>
       <button class="btn press grow" id="okGoOrders">看订单</button>
     </div>
+  </div>
+</div>
+
+<div class="mask" id="chatMask">
+  <div class="sheet">
+    <div class="grab"></div>
+    <h3>联系管理员</h3>
+    <div class="small" style="text-align:center">充值直接说金额，管理员会发收款码给你；付款后把页面上的 ID 报给管理员，马上为你加余额</div>
+    <div class="chatlist" id="chatList"><div class="empty">暂无消息</div></div>
+    <div class="chatbar">
+      <input class="inp" id="chatInp" placeholder="输入消息，比如：我要充值 50" maxlength="1000">
+      <button class="btn press" id="chatSend">发送</button>
+    </div>
+    <button class="btn ghost press" data-close="chatMask" style="margin-top:10px">关闭</button>
   </div>
 </div>
 
@@ -451,10 +484,12 @@ function renderAuth(){
     $("#logoutBtn").addEventListener("click", async ()=>{ try{ await api("/api/logout",{method:"POST"}); }catch(e){}
       token=""; me=null; localStorage.removeItem("lk_token"); renderAuth(); toast("已退出"); switchView("shop"); });
     $("#adminTab").style.display = me.is_admin ? "" : "none";
+    const cb = $("#chatBtn"); if(cb){ cb.style.display = me.is_admin ? "none" : ""; if(!me.is_admin) checkUnread(); }
   } else {
     a.innerHTML = `<button class="chipbtn solid press" id="loginBtn">登录</button>`;
     $("#loginBtn").addEventListener("click", ()=>openMask("authMask"));
     $("#adminTab").style.display = "none";
+    const cb = $("#chatBtn"); if(cb) cb.style.display = "none";
   }
 }
 let authIsLogin = true;
@@ -651,6 +686,53 @@ $("#rechargeBtn").addEventListener("click", async ()=>{
 $("#copyIdBtn").addEventListener("click", e=>{
   if(me) copyTxt(String(me.id), e.currentTarget);
 });
+
+/* ===== 站内聊天（用户侧） ===== */
+let chatTimer = null, userChatCount = -1;
+function bubbleHtml(m, ownSender){
+  const mine = m.sender === ownSender;
+  const inner = m.type === "image"
+    ? `<img class="chatimg" src="${esc(m.content)}" alt="收款码"><div class="small" style="margin-top:6px">长按图片保存，用对应 App 扫码付款</div>`
+    : esc(m.content);
+  return `<div class="msgrow ${mine ? "me" : "them"}"><div class="bubble">${inner}</div><div class="msgtime">${esc(m.time)}</div></div>`;
+}
+async function checkUnread(){
+  if(!(me && !me.is_admin)) return;
+  try{
+    const d = await api("/api/messages/unread");
+    const dot = $("#chatDot");
+    if(dot){ if(d.unread > 0){ dot.style.display = ""; dot.textContent = d.unread > 99 ? "99+" : d.unread; } else dot.style.display = "none"; }
+  }catch(e){}
+}
+async function loadChatThread(){
+  try{
+    const d = await api("/api/messages");
+    if(d.list.length === userChatCount) return;
+    userChatCount = d.list.length;
+    const box = $("#chatList");
+    box.innerHTML = d.list.length ? d.list.map(m => bubbleHtml(m, "user")).join("") : '<div class="empty">暂无消息，先和管理员打个招呼吧</div>';
+    box.scrollTop = box.scrollHeight;
+    const dot = $("#chatDot"); if(dot) dot.style.display = "none";
+  }catch(e){}
+}
+function openChat(){
+  if(!needLogin()) return;
+  userChatCount = -1;
+  openMask("chatMask");
+  loadChatThread();
+  clearInterval(chatTimer);
+  chatTimer = setInterval(()=>{ if($("#chatMask").classList.contains("on")) loadChatThread(); else clearInterval(chatTimer); }, 4000);
+}
+async function sendChat(){
+  const inp = $("#chatInp"); const v = inp.value.trim(); if(!v) return;
+  inp.value = "";
+  try{ await api("/api/messages", {method:"POST", body:{content:v}}); userChatCount = -1; loadChatThread(); }
+  catch(e){ toast(e.message); }
+}
+$("#chatSend").addEventListener("click", sendChat);
+$("#chatInp").addEventListener("keydown", e=>{ if(e.key === "Enter") sendChat(); });
+$("#chatBtn").addEventListener("click", openChat);
+$("#contactBtn").addEventListener("click", openChat);
 $("#chgPwBtn").addEventListener("click", async ()=>{
   try{
     await api("/api/change-password",{method:"POST",body:{old_password:$("#oldPw").value,new_password:$("#newPw").value}});
@@ -660,6 +742,7 @@ $("#chgPwBtn").addEventListener("click", async ()=>{
 
 /* ===== 商户端（管理员） ===== */
 document.querySelectorAll("#adminTabs .subtab").forEach(t=>t.addEventListener("click", ()=>{
+  stopAdminChatPoll(); adminChatUid = null;
   adminMode = t.dataset.at;
   document.querySelectorAll("#adminTabs .subtab").forEach(x=>x.classList.toggle("on", x===t));
   loadAdmin();
@@ -675,7 +758,9 @@ async function loadAdmin(){
          <div class="small mt8" style="line-height:1.7">${s.low_stock.map(x=>`${esc(x.name)}：剩 ${x.stock}`).join("<br>")}</div></div>` : "")
       + (s.top_products.length ? `<div class="stat glass" style="grid-column:span 2"><div class="k">热销商品</div>
          <div class="small mt8" style="line-height:1.7">${s.top_products.map((x,i)=>`${i+1}. ${esc(x.name)} · 卖 ${x.qty} 件 · ${fmt(x.amount)}`).join("<br>")}</div></div>` : "");
+    try{ const cv = await api("/api/admin/conversations"); setChatBadge(cv.list.reduce((s,c)=>s+c.unread,0)); }catch(e){}
     if(adminMode==="products") return adminProductsView();
+    if(adminMode==="chats") return adminChatsView();
     if(adminMode==="cards") return adminCardsView();
     if(adminMode==="orders") return adminOrdersView("");
     if(adminMode==="users") return adminUsersView("");
@@ -686,6 +771,71 @@ async function loadAdmin(){
 function catOptions(sel){
   return `<option value="">未分类</option>` + adminCats.map(c=>`<option value="${c.id}" ${String(c.id)===String(sel)?"selected":""}>${esc(c.name)}</option>`).join("");
 }
+/* ===== 商户端：客服消息 ===== */
+let adminChatUid = null, adminChatTimer = null, adminChatCount = -1;
+function setChatBadge(n){
+  const el = $("#chatBadge"); if(!el) return;
+  el.innerHTML = n > 0 ? `<span class="unreaddot">${n > 99 ? "99+" : n}</span>` : "";
+}
+function stopAdminChatPoll(){ if(adminChatTimer){ clearInterval(adminChatTimer); adminChatTimer = null; } }
+async function adminChatsView(){
+  stopAdminChatPoll();
+  const d = await api("/api/admin/conversations");
+  setChatBadge(d.list.reduce((s,c)=>s+c.unread,0));
+  $("#adminBody").innerHTML = `<div class="panel glass"><h3>客服消息（用户咨询、充值都在这里谈）</h3>
+    ${d.list.length ? d.list.map(c=>`<div class="rowitem flex press" data-conv="${c.id}" style="cursor:pointer">
+      <div class="grow"><div><b>${esc(c.username)}</b> <span class="small">ID ${c.id}</span>${c.unread ? `<span class="unreaddot">${c.unread}</span>` : ""}</div>
+      <div class="small">${c.last_type === "image" ? "[收款码]" : esc((c.last_content || "").slice(0, 42))}</div></div>
+      <div class="small">${esc(c.last_time || "")}</div></div>`).join("") : '<div class="empty">还没有用户发来消息</div>'}
+  </div><div id="adminChatBox"></div>`;
+  document.querySelectorAll("[data-conv]").forEach(r=>r.addEventListener("click", ()=>openAdminThread(Number(r.dataset.conv))));
+}
+async function openAdminThread(uid){
+  adminChatUid = uid; adminChatCount = -1;
+  await loadAdminThread();
+  stopAdminChatPoll();
+  adminChatTimer = setInterval(()=>{ if(adminMode === "chats" && adminChatUid && $("#view-admin").classList.contains("on")) loadAdminThread(true); }, 4000);
+}
+async function loadAdminThread(poll){
+  const box0 = $("#adminChatBox"); if(!box0 || !adminChatUid) return;
+  const d = await api("/api/admin/messages?user_id=" + adminChatUid);
+  if(!d.peer) return;
+  if(poll && d.list.length === adminChatCount) return;
+  adminChatCount = d.list.length;
+  box0.innerHTML = `<div class="panel glass">
+    <div class="flex"><button class="chipbtn press" id="chatBack">← 全部会话</button>
+    <div class="grow"><b>${esc(d.peer.username)}</b> <span class="small">ID ${d.peer.id} · 余额 ${fmt(d.peer.balance)}</span></div>
+    <button class="chipbtn press" id="chatAdjust">给 TA 加余额</button></div>
+    <div class="chatlist mt14" id="adminChatList">${d.list.length ? d.list.map(m=>bubbleHtml(m, "admin")).join("") : '<div class="empty">暂无消息</div>'}</div>
+    <div class="flex mt10" style="gap:8px;flex-wrap:wrap">
+      <button class="chipbtn press" data-qr="/pay-wechat.jpg">发微信收款码</button>
+      <button class="chipbtn press" data-qr="/pay-alipay.jpg">发支付宝收款码</button>
+    </div>
+    <div class="chatbar"><input class="inp" id="adminChatInp" placeholder="回复用户" maxlength="1000"><button class="btn press" id="adminChatSend">发送</button></div>
+  </div>`;
+  const list = $("#adminChatList"); if(list) list.scrollTop = list.scrollHeight;
+  $("#chatBack").addEventListener("click", ()=>{ stopAdminChatPoll(); adminChatUid = null; adminChatsView(); });
+  $("#chatAdjust").addEventListener("click", async ()=>{
+    const v = prompt(`给 ${d.peer.username}（ID ${d.peer.id}）修改余额：输入调整金额（正数加、负数减）：`); if(v === null) return;
+    const amount = Number(v); if(!amount) return toast("金额不对");
+    try{ await api(`/api/admin/users/${d.peer.id}/balance`, {method:"POST", body:{amount, remark:"客服聊天加余额"}}); toast("已加余额"); adminChatCount = -1; loadAdminThread(); }
+    catch(e){ toast(e.message); }
+  });
+  document.querySelectorAll("[data-qr]").forEach(b=>b.addEventListener("click", async ()=>{
+    try{ await api("/api/admin/messages", {method:"POST", body:{user_id: adminChatUid, type: "image", content: b.dataset.qr}}); adminChatCount = -1; loadAdminThread(); }
+    catch(e){ toast(e.message); }
+  }));
+  $("#adminChatSend").addEventListener("click", sendAdminChat);
+  $("#adminChatInp").addEventListener("keydown", e=>{ if(e.key === "Enter") sendAdminChat(); });
+}
+async function sendAdminChat(){
+  const inp = $("#adminChatInp"); if(!inp) return;
+  const v = inp.value.trim(); if(!v) return;
+  inp.value = "";
+  try{ await api("/api/admin/messages", {method:"POST", body:{user_id: adminChatUid, content: v}}); adminChatCount = -1; loadAdminThread(); }
+  catch(e){ toast(e.message); }
+}
+
 async function adminProductsView(){
   const [p, c] = await Promise.all([api("/api/admin/products"), api("/api/admin/categories")]);
   adminProducts = p.list; adminCats = c.list;
