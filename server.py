@@ -560,7 +560,7 @@ class Handler(BaseHTTPRequestHandler):
                     total = money(pr["price"] * qty)
                     bal = con.execute("SELECT balance FROM users WHERE id=?", (me["id"],)).fetchone()["balance"]
                     if bal < total - 1e-9:
-                        raise ApiError("余额不足，先去钱包充值")
+                        raise ApiError("余额不足，请联系管理员充值（把你的用户 ID 发给管理员）")
                     order_no = "XL" + format(int(time.time() * 1000), "X") + secrets.token_hex(2).upper()
                     t = now()
                     if pr["stock_mode"] == "auto":
@@ -608,6 +608,8 @@ class Handler(BaseHTTPRequestHandler):
                     for r in con.execute("SELECT * FROM wallet_logs WHERE user_id=? ORDER BY id DESC LIMIT 50", (me["id"],))]
             return self.ok(dict(balance=bal, logs=logs))
         if p == "/api/recharge" and m == "POST":
+            if not me["is_admin"]:
+                raise ApiError("本店不开放自助充值：请把你的用户 ID 发给管理员，由管理员为你添加余额", 403)
             b = self.body()
             amount = money(b.get("amount") or 0)
             if not (1 <= amount <= 100000):
