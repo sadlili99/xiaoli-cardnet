@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: xiaoli-cardnet
+    env: python
+    buildCommand: "echo ok"
+    startCommand: "python3 -u server.py"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.3

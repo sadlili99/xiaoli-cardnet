@@ -1,0 +1,85 @@
+# 小黎卡网（HTML + Python 后端 + SQLite）
+
+虚拟商品自动发卡系统：买家端商城 + 商家管理后台，同一个工程。
+后端只用 Python 标准库（`http.server` + `sqlite3` + `hashlib.scrypt`），**零第三方依赖，不用 pip install**。
+
+## 目录
+
+```
+server.py          后端单文件（REST API + 静态文件服务）
+public/index.html  前端单文件（液态玻璃 UI，买家端 + 钱包 + 订单 + 后台）
+run.sh             启动脚本
+data/              SQLite 数据库（首次启动自动创建，不进 Git）
+render.yaml        Render 一键部署配置
+Procfile           Railway 等平台的启动命令
+requirements.txt   空文件（零依赖，平台识别 Python 用）
+```
+
+## 本地启动
+
+```bash
+python3 server.py        # 默认端口 8088，PORT=9000 python3 server.py 可改
+```
+
+浏览器打开 `http://127.0.0.1:8088`
+
+- 管理员：`admin / admin123`（种子账号，登录后到「钱包 → 账号 → 修改密码」改掉）
+- 买家：自己注册；充值是模拟充值，即时到账，不涉及真实支付
+- 种子商品带 DEMO- 开头的示例卡密，正式用之前在后台「卡密库存」删掉、导入真卡密
+
+## 关于「放在 GitHub 上让所有人访问」——先说清三件事
+
+1. **GitHub 本身不是服务器**：仓库只能存代码，不会运行 Python 后端。
+2. **GitHub Pages 只能放静态网页**：把 index.html 放上去大家能打开页面，但没有后端和数据库，登录、库存、订单全用不了。卡网不能只靠 Pages。
+3. **正确姿势**：代码放 GitHub 仓库 → 部署平台（如 Render）连接这个仓库 → 平台运行 `python3 server.py` → 生成一个公网网址，所有人都能访问、能注册下单。以后改代码 push 到 GitHub，平台自动重新部署。
+
+## 在 GitHub 上直接跑起来（Codespaces，临时公网演示）
+
+GitHub 里真能「运行服务器」的是 **Codespaces**（云端开发机）。本工程已带 `.devcontainer` 配置，打开 Codespace 会自动启动本服务并转发 8088 端口：
+
+1. 把本工程传到 GitHub 仓库（网页端可直接拖拽上传，注意 `.devcontainer` 文件夹也要传）。
+2. 仓库页面点绿色 **Code** 按钮 → **Codespaces** 标签 → **Create codespace on main**。
+3. 等云端编辑器打开（约 1 分钟），服务已自动启动；若没启动，在终端手动运行 `python3 server.py`。
+4. 打开底部 **PORTS（端口）** 面板 → 右键 8088 端口 → **Port Visibility → Public**（端口默认是私有的，不改成 Public 别人打不开）。
+5. 点 8088 那行的地球图标或复制它的网址，发给任何人即可打开商城、注册、下单。
+
+** limits（Codespaces 是演示，不是营业）：**
+
+- 没人用一段时间后会自动停（默认闲置超时 30 分钟），停了网址就打不开，需要你回 GitHub 重新启动 Codespace。
+- 免费账号每月有 Codespaces 时长额度，用完要等下月或付费。
+- 数据存在 Codespace 里面，它被删除就没了；长期营业请用下面的 Render 方案或自己的服务器。
+
+## 公网部署（Render 免费档，约 5 分钟）
+
+1. 在 GitHub 新建一个仓库（比如 `xiaoli-cardnet`），把本工程所有文件传上去（`data/` 不用传，已在 .gitignore 里）。
+2. 注册/登录 [render.com](https://render.com)，用 GitHub 账号登录最方便。
+3. New → Web Service → 选刚才的仓库。Render 会读到 `render.yaml`，一般直接确认即可：
+   - Build Command：留空或 `echo ok`
+   - Start Command：`python3 -u server.py`
+   - 环境变量 `PYTHON_VERSION=3.12.3`（render.yaml 已写）
+4. 点 Create，等部署完成，会得到类似 `https://xiaoli-cardnet.onrender.com` 的网址，发给任何人都能打开。
+
+**两个实话提醒（免费档的代价）：**
+
+- Render 免费档的文件系统是临时的：平台重启/重新部署后，SQLite 数据会重置回种子状态。演示、试用没问题；真要长期营业，要么升级 Render 付费磁盘（Persistent Disk，挂到 `data/` 目录），要么换带持久磁盘的服务器。
+- 免费档闲置约 15 分钟会休眠，下一个人打开要等几十秒唤醒，属正常现象。
+
+备选平台：Railway（带 `Procfile` 可直接跑）、PythonAnywhere（文件持久，但免费版网址带它域名）、自己的云服务器（`python3 server.py` + 反向代理，最稳）。
+
+## 验收清单（已实测）
+
+- [x] 商品列表：分类筛选、关键词搜索、库存状态（有货/售罄/人工发货）
+- [x] 购买：选数量 → 余额支付 → 当场出卡密、一键复制
+- [x] 订单查询：凭订单号查状态与卡密；「我的订单」列表
+- [x] 钱包：模拟充值即时到账、资金明细（时间 + 事由 + 变动后余额）
+- [x] 注册/登录：scrypt 哈希存密码（不明文）、token 会话 30 天
+- [x] 商家后台：商品增删改/上下架/改价、分类管理、封面 URL 设置
+- [x] 卡密库存：批量导入（一行一张）、未售/已售可查、库存 <5 预警
+- [x] 订单管理：按状态筛选、人工发货、取消待发订单自动退款
+- [x] 数据看板：今日/本月/累计销售额、订单数、热销商品 Top5
+- [x] 原子扣库存：下单在数据库事务里完成，10 并发抢 3 张卡实测只成 3 单，不超卖
+- [x] 操作日志：充值、发卡、改价、删商品、人工发货均留痕，后台可查
+- [x] 数据持久化：重启服务后订单/余额/卡密不丢（本地实测）
+- [x] UI：深色壁纸 + 液态玻璃（blur/saturate/高光描边）、弹簧按压反馈、骨架屏、支付成功对勾动画、余额数字滚动；图标为线性 SVG，无 emoji 图标、无假状态栏
+
+注：余额支付是下单即结算（不存在「下单未支付」状态），因此没有未支付占库存待释放的场景；人工发货订单可由管理员取消并自动退款。

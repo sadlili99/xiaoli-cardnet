@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>小黎卡网</title>
+<style>
+:root{
+  --brand:#0052D9; --brand2:#2B7FFF;
+  --ink:#F2F4F8; --ink2:rgba(235,240,250,.72); --ink3:rgba(235,240,250,.48);
+  --glass:rgba(255,255,255,.08); --glass2:rgba(255,255,255,.13);
+  --line:rgba(255,255,255,.16); --line2:rgba(255,255,255,.28);
+  --ok:#2FBF71; --warn:#E8A13A; --bad:#E5534B;
+  --r:24px; --spring:cubic-bezier(.34,1.56,.64,1); --ease:cubic-bezier(.22,.8,.3,1);
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{scrollbar-color:rgba(255,255,255,.25) transparent}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+  color:var(--ink); min-height:100vh; background:#0B0E14;
+  background-image:
+    radial-gradient(720px 480px at 88% -8%, rgba(0,82,217,.28), transparent 62%),
+    radial-gradient(640px 520px at -12% 22%, rgba(23,124,110,.20), transparent 60%),
+    radial-gradient(560px 420px at 55% 108%, rgba(90,70,160,.16), transparent 62%),
+    linear-gradient(168deg,#11151F 0%,#0B0E14 46%,#0D1017 100%);
+  background-attachment:fixed;
+}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.5;
+  background-image:radial-gradient(rgba(255,255,255,.05) 1px, transparent 1px);background-size:26px 26px}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;border:none;background:none}
+.num{font-variant-numeric:tabular-nums lining-nums}
+.glass{
+  background:linear-gradient(150deg, rgba(255,255,255,.13), rgba(255,255,255,.05) 42%, rgba(255,255,255,.08));
+  backdrop-filter:blur(22px) saturate(170%); -webkit-backdrop-filter:blur(22px) saturate(170%);
+  border:1px solid var(--line); border-radius:var(--r);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.28), inset 0 -1px 0 rgba(255,255,255,.05),
+             0 18px 44px rgba(0,0,0,.42), 0 3px 10px rgba(0,0,0,.28);
+}
+.press{transition:transform .28s var(--spring), background .2s, box-shadow .2s}
+.press:active{transform:scale(.97)}
+.wrap{max-width:1060px;margin:0 auto;padding:0 16px 90px}
+/* ---------- 顶栏 ---------- */
+header{position:sticky;top:10px;z-index:50;margin:10px auto 0;max-width:1060px;padding:0 16px}
+.nav{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:26px}
+.logo{display:flex;align-items:center;gap:9px;font-weight:700;font-size:17px;letter-spacing:.5px;white-space:nowrap}
+.logo svg{flex:none}
+.search{flex:1;display:flex;align-items:center;gap:7px;background:rgba(255,255,255,.07);border:1px solid var(--line);
+  border-radius:999px;padding:8px 13px;min-width:0}
+.search input{flex:1;background:none;border:none;outline:none;font-size:14px;min-width:0}
+.search input::placeholder{color:var(--ink3)}
+.chipbtn{padding:8px 14px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.06);
+  font-size:13.5px;white-space:nowrap}
+.chipbtn.solid{background:var(--brand);border-color:rgba(255,255,255,.25);font-weight:600;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.35), 0 8px 20px rgba(0,82,217,.45)}
+.uinfo{display:flex;align-items:center;gap:8px;font-size:13.5px;white-space:nowrap}
+.uinfo .bal{color:#FFD479;font-weight:600}
+.avatar{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-size:13px;font-weight:700;
+  background:linear-gradient(140deg,var(--brand2),var(--brand));border:1px solid var(--line2);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.4)}
+/* ---------- 标签页 ---------- */
+.tabs{display:flex;gap:8px;margin:16px 0 6px;overflow-x:auto;padding-bottom:4px}
+.tabs::-webkit-scrollbar{display:none}
+.tab{padding:9px 18px;border-radius:999px;font-size:14.5px;color:var(--ink2);border:1px solid transparent;white-space:nowrap}
+.tab.on{color:#fff;background:var(--glass2);border-color:var(--line2);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.3);backdrop-filter:blur(18px) saturate(160%)}
+.notice{display:flex;gap:9px;align-items:flex-start;padding:12px 16px;margin-top:10px;font-size:13.5px;color:var(--ink2);line-height:1.55;border-radius:20px}
+.notice svg{flex:none;margin-top:1px}
+/* ---------- 商品 ---------- */
+.cats{display:flex;gap:8px;margin:14px 0 4px;overflow-x:auto;padding-bottom:4px}
+.cats::-webkit-scrollbar{display:none}
+.cat{padding:7px 15px;border-radius:999px;font-size:13.5px;color:var(--ink2);background:rgba(255,255,255,.05);border:1px solid var(--line);white-space:nowrap}
+.cat.on{color:#fff;background:var(--brand);border-color:rgba(255,255,255,.25)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:14px;margin-top:12px}
+.card{padding:14px;display:flex;flex-direction:column;gap:9px;border-radius:var(--r)}
+.cover{height:104px;border-radius:17px;position:relative;overflow:hidden;display:flex;align-items:flex-end;padding:10px 12px;
+  background:linear-gradient(135deg, rgba(255,255,255,.14), rgba(255,255,255,.04)), #171C28;
+  border:1px solid rgba(255,255,255,.12); box-shadow:inset 0 1px 0 rgba(255,255,255,.22)}
+.cover img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.cover .ct{position:relative;font-size:12px;color:var(--ink2);background:rgba(10,12,18,.45);padding:3px 9px;border-radius:999px;
+  border:1px solid rgba(255,255,255,.18);backdrop-filter:blur(8px)}
+.cover .big{position:absolute;right:10px;top:6px;font-size:44px;font-weight:800;color:rgba(255,255,255,.13);line-height:1}
+.pname{font-size:16px;font-weight:650;line-height:1.35}
+.pdesc{font-size:12.5px;color:var(--ink2);line-height:1.55;min-height:38px}
+.prow{display:flex;align-items:center;justify-content:space-between;margin-top:auto}
+.price{font-size:20px;font-weight:750;color:#fff}
+.price small{font-size:12px;color:var(--ink3);font-weight:400}
+.badge{font-size:11.5px;padding:3.5px 9px;border-radius:999px;border:1px solid}
+.badge.ok{color:#7CE3A8;border-color:rgba(47,191,113,.45);background:rgba(47,191,113,.12)}
+.badge.out{color:#FF9B94;border-color:rgba(229,83,75,.45);background:rgba(229,83,75,.12)}
+.badge.man{color:#FFD479;border-color:rgba(232,161,58,.5);background:rgba(232,161,58,.12)}
+.buybtn{width:100%;padding:11px;border-radius:16px;background:var(--brand);color:#fff;font-weight:650;font-size:15px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.35), 0 10px 22px rgba(0,82,217,.4)}
+.buybtn:disabled{background:rgba(255,255,255,.12);color:var(--ink3);box-shadow:none;cursor:not-allowed}
+.sk{border-radius:var(--r);height:262px;overflow:hidden;position:relative;background:rgba(255,255,255,.05);border:1px solid var(--line)}
+.sk::after{content:"";position:absolute;inset:0;background:linear-gradient(100deg,transparent 30%,rgba(255,255,255,.09) 50%,transparent 70%);
+  animation:shim 1.3s infinite}
+@keyframes shim{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+.empty{padding:52px 0;text-align:center;color:var(--ink3);font-size:14px}
+/* ---------- 列表/通用 ---------- */
+.view{display:none}.view.on{display:block;animation:up .34s var(--ease)}
+@keyframes up{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.panel{padding:18px;margin-top:14px}
+.panel h3{font-size:16px;margin-bottom:12px}
+.rowitem{padding:13px 2px;border-bottom:1px solid rgba(255,255,255,.07)}
+.rowitem:last-child{border-bottom:none}
+.mut{color:var(--ink2);font-size:13px}.small{font-size:12px;color:var(--ink3)}
+code.codemono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;background:rgba(255,255,255,.08);
+  padding:4px 9px;border-radius:9px;border:1px solid rgba(255,255,255,.1);word-break:break-all}
+.copybtn{font-size:12px;color:#8FBEFF;padding:4px 10px;border:1px solid rgba(43,127,255,.45);border-radius:999px;background:rgba(0,82,217,.14);white-space:nowrap}
+.st{font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid}
+.st.done{color:#7CE3A8;border-color:rgba(47,191,113,.45)} .st.pending{color:#FFD479;border-color:rgba(232,161,58,.5)}
+.st.cancelled{color:#FF9B94;border-color:rgba(229,83,75,.45)}
+.amt-p{color:#7CE3A8}.amt-m{color:#FF9B94}
+input.inp,select.inp,textarea.inp{width:100%;background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:14px;
+  padding:11px 13px;font-size:14.5px;outline:none}
+input.inp:focus,select.inp:focus,textarea.inp:focus{border-color:rgba(43,127,255,.65)}
+textarea.inp{resize:vertical;min-height:76px;line-height:1.5}
+label.lb{display:block;font-size:12.5px;color:var(--ink2);margin:12px 0 6px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:11px 20px;border-radius:15px;
+  background:var(--brand);color:#fff;font-weight:650;font-size:14.5px;box-shadow:inset 0 1px 0 rgba(255,255,255,.3)}
+.btn.ghost{background:rgba(255,255,255,.07);border:1px solid var(--line);box-shadow:none;color:var(--ink)}
+.btn.danger{background:rgba(229,83,75,.16);border:1px solid rgba(229,83,75,.5);color:#FF9B94;box-shadow:none}
+.btn.sm{padding:7px 13px;font-size:13px;border-radius:11px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+/* ---------- 钱包 ---------- */
+.walletbal{padding:24px 20px;margin-top:14px;text-align:left;position:relative;overflow:hidden}
+.walletbal .k{font-size:13px;color:var(--ink2)}
+.walletbal .v{font-size:38px;font-weight:800;margin:5px 0 2px}
+.qrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.qamt{padding:8px 16px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.05);font-size:14px}
+.qamt.on{background:var(--brand);color:#fff;border-color:rgba(255,255,255,.25)}
+/* ---------- 后台 ---------- */
+.stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:12px;margin-top:14px}
+.stat{padding:16px;border-radius:20px}
+.stat .k{font-size:12.5px;color:var(--ink2)} .stat .v{font-size:23px;font-weight:750;margin-top:5px}
+.subtabs{display:flex;gap:8px;margin:16px 0 4px;overflow-x:auto;padding-bottom:4px}
+.subtabs::-webkit-scrollbar{display:none}
+.subtab{padding:8px 15px;border-radius:999px;font-size:13.5px;color:var(--ink2);background:rgba(255,255,255,.05);border:1px solid var(--line);white-space:nowrap}
+.subtab.on{color:#fff;background:var(--brand)}
+table.tb{width:100%;border-collapse:collapse;font-size:13.5px}
+table.tb th{text-align:left;color:var(--ink3);font-weight:500;padding:9px 8px;border-bottom:1px solid rgba(255,255,255,.1);white-space:nowrap}
+table.tb td{padding:10px 8px;border-bottom:1px solid rgba(255,255,255,.06);vertical-align:top}
+.tblwrap{overflow-x:auto}
+.flex{display:flex;gap:10px;align-items:center}.grow{flex:1}.wrap2{flex-wrap:wrap}
+.mt8{margin-top:8px}.mt14{margin-top:14px}.mb8{margin-bottom:8px}
+/* ---------- 弹层 ---------- */
+.mask{position:fixed;inset:0;background:rgba(4,6,10,.55);backdrop-filter:blur(6px);z-index:90;display:none;
+  align-items:flex-end;justify-content:center}
+.mask.on{display:flex}
+.sheet{width:min(520px,100%);max-height:88vh;overflow-y:auto;padding:22px 20px calc(20px + env(safe-area-inset-bottom));
+  border-radius:28px 28px 0 0;border-bottom:none;animation:sheetup .36s var(--spring)}
+@media(min-width:640px){.mask{align-items:center}.sheet{border-radius:28px;border-bottom:1px solid var(--line)}}
+@keyframes sheetup{from{opacity:0;transform:translateY(26px) scale(.98)}to{opacity:1;transform:none}}
+.sheet h3{font-size:18px;margin-bottom:4px}
+.x{position:absolute}
+.sheethead{display:flex;justify-content:space-between;align-items:flex-start}
+.xbtn{width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.08);border:1px solid var(--line);display:grid;place-items:center;font-size:15px;color:var(--ink2)}
+.stepper{display:flex;align-items:center;gap:14px}
+.stepper button{width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,.08);border:1px solid var(--line2);font-size:19px}
+.stepper .n{font-size:20px;font-weight:700;min-width:34px;text-align:center}
+.checkwrap{display:grid;place-items:center;padding:10px 0 2px}
+.checkwrap svg circle{stroke-dasharray:200;stroke-dashoffset:200;animation:draw .55s var(--ease) forwards}
+.checkwrap svg path{stroke-dasharray:60;stroke-dashoffset:60;animation:draw .4s .45s var(--ease) forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+.toast{position:fixed;left:50%;bottom:calc(26px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(16px);
+  background:rgba(18,22,32,.92);border:1px solid var(--line2);color:#fff;padding:11px 20px;border-radius:999px;font-size:14px;
+  opacity:0;pointer-events:none;transition:.3s var(--ease);z-index:200;backdrop-filter:blur(14px);max-width:88vw;text-align:center;
+  box-shadow:0 14px 34px rgba(0,0,0,.5)}
+.toast.on{opacity:1;transform:translateX(-50%)}
+footer{padding:26px 0 8px;text-align:center;color:var(--ink3);font-size:12px;line-height:1.7}
+@media(max-width:560px){ .search{display:none} .grid{grid-template-columns:repeat(auto-fill,minmax(158px,1fr))} .cover{height:82px} }
+</style>
+</head>
+<body>
+<header>
+  <div class="nav glass">
+    <div class="logo">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#2B7FFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5" width="19" height="14" rx="3.5"/><path d="M2.5 10h19M6 15h4"/></svg>
+      小黎卡网
+    </div>
+    <div class="search">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(235,240,250,.5)" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.8-3.8"/></svg>
+      <input id="searchInp" placeholder="搜商品，比如 Steam">
+    </div>
+    <div id="authArea"></div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="tabs" id="mainTabs">
+    <button class="tab on press" data-view="shop">商城</button>
+    <button class="tab press" data-view="orders">我的订单</button>
+    <button class="tab press" data-view="wallet">钱包</button>
+    <button class="tab press" data-view="admin" id="adminTab" style="display:none">管理后台</button>
+  </div>
+
+  <!-- 商城 -->
+  <section class="view on" id="view-shop">
+    <div id="noticeBox"></div>
+    <div class="cats" id="catBox"></div>
+    <div class="grid" id="prodGrid"></div>
+  </section>
+
+  <!-- 订单 -->
+  <section class="view" id="view-orders">
+    <div class="panel glass">
+      <h3>订单号查询</h3>
+      <div class="flex">
+        <input class="inp grow" id="queryInp" placeholder="粘贴订单号，如 XL18F2…">
+        <button class="btn press" id="queryBtn">查询</button>
+      </div>
+      <div id="queryResult" class="mt8"></div>
+    </div>
+    <div class="panel glass">
+      <h3>我的订单</h3>
+      <div id="myOrders"></div>
+    </div>
+  </section>
+
+  <!-- 钱包 -->
+  <section class="view" id="view-wallet">
+    <div class="walletbal glass">
+      <div class="k">余额（元）</div>
+      <div class="v num" id="walletBal">--</div>
+      <div class="small">模拟充值即时到账，只用于演示，不涉及真实支付</div>
+      <div class="qrow" id="qAmts">
+        <button class="qamt press num" data-a="10">10</button>
+        <button class="qamt press num on" data-a="50">50</button>
+        <button class="qamt press num" data-a="100">100</button>
+        <button class="qamt press num" data-a="200">200</button>
+      </div>
+      <div class="flex mt14">
+        <input class="inp grow num" id="rechargeInp" type="number" min="1" placeholder="或输入金额">
+        <button class="btn press" id="rechargeBtn">充值</button>
+      </div>
+    </div>
+    <div class="panel glass">
+      <h3>资金明细</h3>
+      <div id="walletLogs"></div>
+    </div>
+    <div class="panel glass">
+      <h3>账号</h3>
+      <div id="acctBox" class="mut">—</div>
+      <label class="lb">修改密码（改完需重新登录）</label>
+      <div class="flex wrap2">
+        <input class="inp grow" id="oldPw" type="password" placeholder="原密码">
+        <input class="inp grow" id="newPw" type="password" placeholder="新密码 6-64 位">
+        <button class="btn ghost press" id="chgPwBtn">改密码</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 后台 -->
+  <section class="view" id="view-admin">
+    <div class="stats" id="statBox"></div>
+    <div class="subtabs" id="adminTabs">
+      <button class="subtab on press" data-at="products">商品</button>
+      <button class="subtab press" data-at="cards">卡密库存</button>
+      <button class="subtab press" data-at="orders">订单</button>
+      <button class="subtab press" data-at="users">用户</button>
+      <button class="subtab press" data-at="cats">分类与公告</button>
+      <button class="subtab press" data-at="logs">操作日志</button>
+    </div>
+    <div id="adminBody"></div>
+  </section>
+
+  <footer>小黎卡网 · 下单自动发卡，卡密请截图保存<br>演示站：充值均为模拟，不收真实款项</footer>
+</div>
+
+<!-- 购买弹层 -->
+<div class="mask" id="buyMask">
+  <div class="sheet glass">
+    <div class="sheethead">
+      <div><h3 id="buyName">—</h3><div class="mut" id="buyMeta">—</div></div>
+      <button class="xbtn press" data-close="buyMask">✕</button>
+    </div>
+    <p class="mut mt8" id="buyDesc" style="line-height:1.6"></p>
+    <label class="lb">数量</label>
+    <div class="stepper">
+      <button class="press" id="minusBtn">−</button>
+      <div class="n num" id="qtyNum">1</div>
+      <button class="press" id="plusBtn">+</button>
+      <div class="mut" id="stockHint"></div>
+    </div>
+    <div class="flex mt14" style="justify-content:space-between">
+      <span class="mut">应付</span>
+      <span class="price num" id="buyTotal">¥0</span>
+    </div>
+    <div class="flex" style="justify-content:space-between">
+      <span class="mut">当前余额</span><span class="num" id="buyBal">¥0</span>
+    </div>
+    <button class="btn press mt14" id="payBtn" style="width:100%;padding:14px">余额支付</button>
+  </div>
+</div>
+
+<!-- 成功弹层 -->
+<div class="mask" id="okMask">
+  <div class="sheet glass">
+    <div class="checkwrap">
+      <svg width="76" height="76" viewBox="0 0 76 76" fill="none">
+        <circle cx="38" cy="38" r="31" stroke="#2FBF71" stroke-width="3"/>
+        <path d="M25 39.5 L34.5 49 L52 29" stroke="#2FBF71" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <h3 style="text-align:center">支付成功</h3>
+    <div class="mut" style="text-align:center" id="okOrderNo"></div>
+    <div id="okCards" class="mt14"></div>
+    <div class="flex mt14">
+      <button class="btn ghost press grow" data-close="okMask">继续逛</button>
+      <button class="btn press grow" id="okGoOrders">看订单</button>
+    </div>
+  </div>
+</div>
+
+<!-- 登录弹层 -->
+<div class="mask" id="authMask">
+  <div class="sheet glass">
+    <div class="sheethead">
+      <h3 id="authTitle">登录</h3>
+      <button class="xbtn press" data-close="authMask">✕</button>
+    </div>
+    <div class="mut">买东西、查订单都要先登录</div>
+    <label class="lb">用户名</label>
+    <input class="inp" id="authUser" placeholder="2-20 位，字母/数字/中文">
+    <label class="lb">密码</label>
+    <input class="inp" id="authPw" type="password" placeholder="6-64 位">
+    <button class="btn press mt14" id="authSubmit" style="width:100%;padding:14px">登录</button>
+    <div style="text-align:center" class="mt14">
+      <button class="mut press" id="authSwitch">没有账号？去注册</button>
+    </div>
+    <div class="small" style="text-align:center;margin-top:10px">管理员演示账号：admin / admin123</div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt = n => "¥" + Number(n||0).toFixed(2);
+let token = localStorage.getItem("lk_token") || "";
+let me = null, curCat = "", curQ = "", buyItem = null, buyQty = 1, adminMode = "products",
+    adminProducts = [], adminCats = [], cardPid = null, rechargeAmt = 50;
+
+function toast(msg){
+  const t = $("#toast"); t.textContent = msg; t.classList.add("on");
+  clearTimeout(t._h); t._h = setTimeout(()=>t.classList.remove("on"), 2400);
+}
+async function api(path, opts={}){
+  const r = await fetch(path, {method: opts.method||"GET",
+    headers: {"Content-Type":"application/json", ...(token?{Authorization:"Bearer "+token}:{})},
+    body: opts.body?JSON.stringify(opts.body):undefined});
+  let d; try{ d = await r.json(); }catch(e){ d = {ok:false, msg:"服务器无响应"}; }
+  if(!d.ok) throw new Error(d.msg||"请求失败");
+  return d;
+}
+function copyTxt(txt, btn){
+  const done = ()=>{ if(btn){ const o=btn.textContent; btn.textContent="已复制"; setTimeout(()=>btn.textContent=o,1200);} else toast("已复制"); };
+  if(navigator.clipboard && window.isSecureContext !== false){
+    navigator.clipboard.writeText(txt).then(done).catch(()=>fallbackCopy(txt, done));
+  } else fallbackCopy(txt, done);
+}
+function fallbackCopy(txt, done){
+  const ta=document.createElement("textarea"); ta.value=txt; ta.style.position="fixed"; ta.style.opacity="0";
+  document.body.appendChild(ta); ta.select(); try{document.execCommand("copy");}catch(e){} ta.remove(); done();
+}
+function openMask(id){ $("#"+id).classList.add("on"); }
+function closeMask(id){ $("#"+id).classList.remove("on"); }
+document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click",()=>closeMask(b.dataset.close)));
+document.querySelectorAll(".mask").forEach(mk=>mk.addEventListener("click",e=>{ if(e.target===mk) mk.classList.remove("on"); }));
+
+/* ---------- 登录状态 ---------- */
+function renderAuth(){
+  const a = $("#authArea");
+  if(me){
+    a.innerHTML = `<div class="uinfo"><span class="avatar">${esc(me.username.slice(0,1).toUpperCase())}</span>
+      <span>${esc(me.username)}</span><span class="bal num">${fmt(me.balance)}</span>
+      <button class="chipbtn press" id="logoutBtn">退出</button></div>`;
+    $("#logoutBtn").addEventListener("click", async ()=>{ try{ await api("/api/logout",{method:"POST"}); }catch(e){}
+      token=""; me=null; localStorage.removeItem("lk_token"); renderAuth(); toast("已退出"); switchView("shop"); });
+    $("#adminTab").style.display = me.is_admin ? "" : "none";
+  } else {
+    a.innerHTML = `<button class="chipbtn solid press" id="loginBtn">登录 / 注册</button>`;
+    $("#loginBtn").addEventListener("click", ()=>openMask("authMask"));
+    $("#adminTab").style.display = "none";
+  }
+}
+let authIsLogin = true;
+$("#authSwitch").addEventListener("click", ()=>{
+  authIsLogin = !authIsLogin;
+  $("#authTitle").textContent = authIsLogin ? "登录" : "注册";
+  $("#authSubmit").textContent = authIsLogin ? "登录" : "注册并去登录";
+  $("#authSwitch").textContent = authIsLogin ? "没有账号？去注册" : "已有账号？去登录";
+});
+$("#authSubmit").addEventListener("click", async ()=>{
+  const username = $("#authUser").value.trim(), password = $("#authPw").value;
+  if(!username || !password) return toast("用户名和密码都要填");
+  try{
+    if(!authIsLogin){ await api("/api/register",{method:"POST",body:{username,password}}); toast("注册成功，登录一下"); authIsLogin=true; $("#authSwitch").click(); $("#authPw").value=password; return; }
+    const d = await api("/api/login",{method:"POST",body:{username,password}});
+    token = d.token; me = d.user; localStorage.setItem("lk_token", token);
+    closeMask("authMask"); renderAuth(); toast("登录成功"); loadShop();
+  }catch(e){ toast(e.message); }
+});
+async function refreshMe(){
+  if(!token){ me=null; renderAuth(); return; }
+  try{ const d = await api("/api/me"); me = d.user; }catch(e){ token=""; localStorage.removeItem("lk_token"); me=null; }
+  renderAuth();
+}
+function needLogin(){
+  if(me) return true;
+  openMask("authMask"); toast("先登录"); return false;
+}
+
+/* ---------- 视图切换 ---------- */
+function switchView(v){
+  document.querySelectorAll("#mainTabs .tab").forEach(t=>t.classList.toggle("on", t.dataset.view===v));
+  document.querySelectorAll(".view").forEach(s=>s.classList.toggle("on", s.id==="view-"+v));
+  if(v==="orders") loadOrders();
+  if(v==="wallet") loadWallet();
+  if(v==="admin") loadAdmin();
+  window.scrollTo({top:0, behavior:"smooth"});
+}
+document.querySelectorAll("#mainTabs .tab").forEach(t=>t.addEventListener("click", ()=>{
+  if((t.dataset.view==="orders"||t.dataset.view==="wallet") && !needLogin()) return;
+  if(t.dataset.view==="admin" && !(me&&me.is_admin)) return toast("需要管理员账号");
+  switchView(t.dataset.view);
+}));
+
+/* ---------- 商城 ---------- */
+async function loadShop(){
+  const g = $("#prodGrid");
+  g.innerHTML = '<div class="sk"></div><div class="sk"></div><div class="sk"></div><div class="sk"></div>';
+  try{
+    const [cats, prods, notes] = await Promise.all([
+      api("/api/categories"), 
+      api("/api/products" + (curCat||curQ ? "?" + new URLSearchParams({...(curCat?{category:curCat}:{}), ...(curQ?{q:curQ}:{})}) : "")),
+      api("/api/announcements").catch(()=>({list:[]}))
+    ]);
+    $("#catBox").innerHTML = `<button class="cat press ${!curCat?"on":""}" data-cat="">全部</button>` +
+      cats.list.map(c=>`<button class="cat press ${String(c.id)===String(curCat)?"on":""}" data-cat="${c.id}">${esc(c.name)}</button>`).join("");
+    document.querySelectorAll("#catBox .cat").forEach(b=>b.addEventListener("click", ()=>{ curCat=b.dataset.cat; loadShop(); }));
+    $("#noticeBox").innerHTML = notes.list.length ? `<div class="notice glass">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFD479" stroke-width="1.9" stroke-linecap="round"><path d="M4 10v4h3l6 5V5L7 10H4z"/><path d="M16.5 8.5a5 5 0 010 7"/></svg>
+      <span>${esc(notes.list[0].content)}</span></div>` : "";
+    if(!prods.list.length){ g.innerHTML = '<div class="empty" style="grid-column:1/-1">没找到这个商品，换个词试试</div>'; return; }
+    g.innerHTML = prods.list.map(p=>{
+      const sold = p.stock_mode==="auto" && p.stock<=0;
+      const badge = p.stock_mode==="manual" ? '<span class="badge man">人工发货</span>'
+        : sold ? '<span class="badge out">售罄</span>' : `<span class="badge ok">有货 · 剩 ${p.stock}</span>`;
+      const cover = p.cover && /^https?:/.test(p.cover)
+        ? `<img src="${esc(p.cover)}" alt="">` : `<span class="big">${esc((p.name||"卡").trim().slice(0,1))}</span>`;
+      return `<article class="card glass">
+        <div class="cover">${cover}<span class="ct">${esc(p.category_name||"未分类")}</span></div>
+        <div class="pname">${esc(p.name)}</div>
+        <div class="pdesc">${esc(p.description||"")}</div>
+        <div class="prow"><span class="price num">${fmt(p.price)}</span>${badge}</div>
+        <button class="buybtn press" data-buy="${p.id}" ${sold?"disabled":""}>${sold?"已售罄":"立即购买"}</button>
+      </article>`;
+    }).join("");
+    document.querySelectorAll("[data-buy]").forEach(b=>b.addEventListener("click", ()=>openBuy(Number(b.dataset.buy))));
+  }catch(e){ g.innerHTML = `<div class="empty" style="grid-column:1/-1">${esc(e.message)}</div>`; }
+}
+let searchTimer;
+$("#searchInp").addEventListener("input", e=>{ clearTimeout(searchTimer); searchTimer=setTimeout(()=>{ curQ=e.target.value.trim(); loadShop(); }, 260); });
+
+async function openBuy(pid){
+  try{
+    const d = await api("/api/products/"+pid);
+    buyItem = d.product; buyQty = 1;
+    $("#buyName").textContent = buyItem.name;
+    $("#buyMeta").textContent = (buyItem.category_name||"") + (buyItem.stock_mode==="manual" ? " · 人工发货" : " · 自动发卡");
+    $("#buyDesc").textContent = buyItem.description||"";
+    updateBuy(); openMask("buyMask");
+  }catch(e){ toast(e.message); }
+}
+function updateBuy(){
+  $("#qtyNum").textContent = buyQty;
+  $("#stockHint").textContent = buyItem.stock_mode==="manual" ? "人工发货，拍下后等发货" : `库存 ${buyItem.stock} 件`;
+  $("#buyTotal").textContent = fmt(buyItem.price*buyQty);
+  $("#buyBal").textContent = me ? fmt(me.balance) : "未登录";
+  $("#payBtn").textContent = me ? "余额支付" : "先登录再买";
+}
+$("#minusBtn").addEventListener("click", ()=>{ if(buyQty>1){ buyQty--; updateBuy(); } });
+$("#plusBtn").addEventListener("click", ()=>{ const max = buyItem.stock_mode==="manual" ? 99 : Math.max(1, buyItem.stock); if(buyQty<Math.min(99,max)){ buyQty++; updateBuy(); } else toast("不能再多了"); });
+$("#payBtn").addEventListener("click", async ()=>{
+  if(!needLogin()){ closeMask("buyMask"); return; }
+  const btn = $("#payBtn"); btn.disabled = true; btn.textContent = "支付中…";
+  try{
+    const d = await api("/api/orders",{method:"POST",body:{product_id:buyItem.id, quantity:buyQty}});
+    me.balance = d.balance; renderAuth(); closeMask("buyMask");
+    $("#okOrderNo").textContent = "订单号 " + d.order_no + (d.pending ? " · 人工发货，卡密随后在订单里看" : "");
+    $("#okCards").innerHTML = d.pending
+      ? '<div class="mut" style="text-align:center">已扣款，商家发货后卡密会出现在「我的订单」里</div>'
+      : d.cards.map(c=>`<div class="flex mb8"><code class="codemono grow">${esc(c)}</code><button class="copybtn press" data-copy="${esc(c)}">复制</button></div>`).join("");
+    bindCopy(); openMask("okMask"); loadShop();
+  }catch(e){ toast(e.message); }
+  btn.disabled = false; btn.textContent = "余额支付";
+});
+$("#okGoOrders").addEventListener("click", ()=>{ closeMask("okMask"); switchView("orders"); });
+function bindCopy(){
+  document.querySelectorAll("[data-copy]").forEach(b=>{
+    if(b._bound) return; b._bound = true;
+    b.addEventListener("click", ()=>copyTxt(b.dataset.copy, b));
+  });
+}
+
+/* ---------- 订单 ---------- */
+function orderHtml(o, showUser){
+  const st = {done:'<span class="st done">已完成</span>', pending:'<span class="st pending">待发货</span>', cancelled:'<span class="st cancelled">已取消</span>'}[o.status]||o.status;
+  return `<div class="rowitem">
+    <div class="flex wrap2"><b>${esc(o.product_name)}</b>${st}
+      <span class="small grow" style="text-align:right">${esc(o.time)}</span></div>
+    <div class="mut mt8">订单号 <code class="codemono">${esc(o.order_no)}</code>
+      ${showUser?` · 用户 ${esc(o.username||"")}`:""} · x${o.quantity} · <span class="num">${fmt(o.total_price)}</span></div>
+    ${o.cards && o.cards.length ? `<div class="mt8">${o.cards.map(c=>`<div class="flex mb8"><code class="codemono grow">${esc(c)}</code><button class="copybtn press" data-copy="${esc(c)}">复制</button></div>`).join("")}</div>` : ""}
+  </div>`;
+}
+async function loadOrders(){
+  const box = $("#myOrders");
+  if(!me){ box.innerHTML = '<div class="empty">先登录</div>'; return; }
+  box.innerHTML = '<div class="empty">加载中…</div>';
+  try{
+    const d = await api("/api/orders");
+    box.innerHTML = d.list.length ? d.list.map(o=>orderHtml(o,false)).join("") : '<div class="empty">还没有订单，去商城逛逛</div>';
+    bindCopy();
+  }catch(e){ box.innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+}
+$("#queryBtn").addEventListener("click", async ()=>{
+  const no = $("#queryInp").value.trim(); const box = $("#queryResult");
+  if(!no) return toast("先粘贴订单号");
+  box.innerHTML = '<div class="mut mt8">查询中…</div>';
+  try{
+    const d = await api("/api/order-query",{method:"POST",body:{order_no:no}});
+    box.innerHTML = orderHtml(d.order,false); bindCopy();
+  }catch(e){ box.innerHTML = `<div class="mut mt8">${esc(e.message)}</div>`; }
+});
+
+/* ---------- 钱包 ---------- */
+async function loadWallet(){
+  if(!me) return;
+  try{
+    const d = await api("/api/wallet");
+    animateNum($("#walletBal"), d.balance);
+    me.balance = d.balance; renderAuth();
+    $("#acctBox").innerHTML = `当前账号：<b style="color:var(--ink)">${esc(me.username)}</b>${me.is_admin?"（管理员）":""}`;
+    $("#walletLogs").innerHTML = d.logs.length ? d.logs.map(l=>`<div class="rowitem flex">
+      <div class="grow"><div>${esc(l.reason)}</div><div class="small">${esc(l.time)}</div></div>
+      <div class="num" style="font-weight:700"><span class="${l.amount>=0?"amt-p":"amt-m"}">${l.amount>=0?"+":""}${Number(l.amount).toFixed(2)}</span>
+      <div class="small" style="text-align:right">余额 ${Number(l.balance_after).toFixed(2)}</div></div></div>`).join("")
+      : '<div class="empty">暂无明细</div>';
+  }catch(e){ toast(e.message); }
+}
+function animateNum(el, to){
+  const from = parseFloat(el.dataset.v||"0"), t0 = performance.now();
+  function step(t){ const k = Math.min(1,(t-t0)/450); const v = from+(to-from)*(1-Math.pow(1-k,3));
+    el.textContent = fmt(v); if(k<1) requestAnimationFrame(step); else el.dataset.v = to; }
+  requestAnimationFrame(step);
+}
+document.querySelectorAll("#qAmts .qamt").forEach(b=>b.addEventListener("click", ()=>{
+  document.querySelectorAll("#qAmts .qamt").forEach(x=>x.classList.remove("on"));
+  b.classList.add("on"); rechargeAmt = Number(b.dataset.a); $("#rechargeInp").value = "";
+}));
+$("#rechargeBtn").addEventListener("click", async ()=>{
+  if(!needLogin()) return;
+  const custom = Number($("#rechargeInp").value||0);
+  const amount = custom>0 ? custom : rechargeAmt;
+  try{
+    const d = await api("/api/recharge",{method:"POST",body:{amount}});
+    toast("充值成功（模拟）"); loadWallet();
+  }catch(e){ toast(e.message); }
+});
+$("#chgPwBtn").addEventListener("click", async ()=>{
+  try{
+    await api("/api/change-password",{method:"POST",body:{old_password:$("#oldPw").value,new_password:$("#newPw").value}});
+    token=""; me=null; localStorage.removeItem("lk_token"); renderAuth(); toast("密码已改，重新登录"); switchView("shop");
+  }catch(e){ toast(e.message); }
+});
+
+/* ---------- 后台 ---------- */
+document.querySelectorAll("#adminTabs .subtab").forEach(t=>t.addEventListener("click", ()=>{
+  adminMode = t.dataset.at;
+  document.querySelectorAll("#adminTabs .subtab").forEach(x=>x.classList.toggle("on", x===t));
+  loadAdmin();
+}));
+async function loadAdmin(){
+  if(!(me&&me.is_admin)) return;
+  try{
+    const s = await api("/api/admin/stats");
+    const cells = [["今日销售额",fmt(s.today_revenue)],["本月销售额",fmt(s.month_revenue)],["累计销售额",fmt(s.total_revenue)],
+      ["订单数",s.orders],["待发货",s.pending_orders],["商品数",s.products],["用户数",s.users]];
+    $("#statBox").innerHTML = cells.map(([k,v])=>`<div class="stat glass"><div class="k">${k}</div><div class="v num">${v}</div></div>`).join("")
+      + (s.low_stock.length ? `<div class="stat glass" style="grid-column:span 2"><div class="k">库存预警（&lt;5）</div>
+         <div class="small mt8" style="line-height:1.7">${s.low_stock.map(x=>`${esc(x.name)}：剩 ${x.stock}`).join("<br>")}</div></div>` : "")
+      + (s.top_products.length ? `<div class="stat glass" style="grid-column:span 2"><div class="k">热销商品</div>
+         <div class="small mt8" style="line-height:1.7">${s.top_products.map((x,i)=>`${i+1}. ${esc(x.name)} · 卖 ${x.qty} 件 · ${fmt(x.amount)}`).join("<br>")}</div></div>` : "");
+    if(adminMode==="products") return adminProductsView();
+    if(adminMode==="cards") return adminCardsView();
+    if(adminMode==="orders") return adminOrdersView("");
+    if(adminMode==="users") return adminUsersView("");
+    if(adminMode==="cats") return adminCatsView();
+    if(adminMode==="logs") return adminLogsView();
+  }catch(e){ toast(e.message); }
+}
+function catOptions(sel){
+  return `<option value="">未分类</option>` + adminCats.map(c=>`<option value="${c.id}" ${String(c.id)===String(sel)?"selected":""}>${esc(c.name)}</option>`).join("");
+}
+async function adminProductsView(){
+  const [p, c] = await Promise.all([api("/api/admin/products"), api("/api/admin/categories")]);
+  adminProducts = p.list; adminCats = c.list;
+  $("#adminBody").innerHTML = `<div class="panel glass">
+    <h3>新增商品</h3>
+    <div class="flex wrap2">
+      <input class="inp grow" id="npName" placeholder="商品名">
+      <input class="inp num" id="npPrice" type="number" step="0.01" placeholder="价格" style="width:110px">
+      <select class="inp" id="npCat" style="width:130px">${catOptions("")}</select>
+      <select class="inp" id="npMode" style="width:120px"><option value="auto">自动发卡</option><option value="manual">人工发货</option></select>
+    </div>
+    <input class="inp mt8" id="npCover" placeholder="封面图 URL（可空）">
+    <textarea class="inp mt8" id="npDesc" placeholder="商品说明，写清兑换方式和注意事项"></textarea>
+    <button class="btn press mt8" id="npAdd">上架商品</button>
+    <div class="tblwrap mt14"><table class="tb"><thead><tr><th>商品</th><th>价格</th><th>库存/已售</th><th>状态</th><th>操作</th></tr></thead>
+    <tbody>${adminProducts.map(x=>`<tr>
+      <td><b>${esc(x.name)}</b><div class="small">${esc(x.category_name||"未分类")} · ${x.stock_mode==="manual"?"人工":"自动"}</div></td>
+      <td class="num">${fmt(x.price)}</td><td class="num">${x.stock} / ${x.sold}</td>
+      <td>${x.status?'<span class="st done">上架中</span>':'<span class="st cancelled">已下架</span>'}</td>
+      <td><div class="flex wrap2">
+        <button class="btn ghost sm press" data-edit="${x.id}">编辑</button>
+        <button class="btn ghost sm press" data-toggle="${x.id}" data-st="${x.status}">${x.status?"下架":"上架"}</button>
+        <button class="btn danger sm press" data-del="${x.id}">删除</button></div></td></tr>`).join("")}
+    </tbody></table></div>
+    <div id="editBox"></div></div>`;
+  $("#npAdd").addEventListener("click", async ()=>{
+    try{
+      await api("/api/admin/products",{method:"POST",body:{name:$("#npName").value, price:Number($("#npPrice").value||0),
+        category_id:$("#npCat").value?Number($("#npCat").value):null, stock_mode:$("#npMode").value,
+        cover:$("#npCover").value.trim(), description:$("#npDesc").value}});
+      toast("已上架"); loadAdmin();
+    }catch(e){ toast(e.message); }
+  });
+  document.querySelectorAll("[data-toggle]").forEach(b=>b.addEventListener("click", async ()=>{
+    const x = adminProducts.find(v=>v.id===Number(b.dataset.toggle)); if(!x) return;
+    try{ await api("/api/admin/products/"+x.id,{method:"PUT",body:{...x, status: x.status?0:1}}); loadAdmin(); }catch(e){ toast(e.message); }
+  }));
+  document.querySelectorAll("[data-del]").forEach(b=>b.addEventListener("click", async ()=>{
+    if(!confirm("删除这个商品？它的未售卡密也会一起删")) return;
+    try{ await api("/api/admin/products/"+b.dataset.del,{method:"DELETE"}); toast("已删除"); loadAdmin(); }catch(e){ toast(e.message); }
+  }));
+  document.querySelectorAll("[data-edit]").forEach(b=>b.addEventListener("click", ()=>{
+    const x = adminProducts.find(v=>v.id===Number(b.dataset.edit)); if(!x) return;
+    $("#editBox").innerHTML = `<div class="mt14" style="border-top:1px solid rgba(255,255,255,.1);padding-top:14px">
+      <h3>编辑：${esc(x.name)}</h3>
+      <div class="flex wrap2">
+        <input class="inp grow" id="epName" value="${esc(x.name)}">
+        <input class="inp num" id="epPrice" type="number" step="0.01" value="${x.price}" style="width:110px">
+        <select class="inp" id="epCat" style="width:130px">${catOptions(x.category_id)}</select>
+        <select class="inp" id="epMode" style="width:120px"><option value="auto" ${x.stock_mode==="auto"?"selected":""}>自动发卡</option><option value="manual" ${x.stock_mode==="manual"?"selected":""}>人工发货</option></select>
+        <input class="inp num" id="epSort" type="number" value="${x.sort}" style="width:90px" placeholder="排序">
+      </div>
+      <input class="inp mt8" id="epCover" value="${esc(x.cover||"")}" placeholder="封面图 URL（可空）">
+      <textarea class="inp mt8" id="epDesc">${esc(x.description||"")}</textarea>
+      <button class="btn press mt8" id="epSave">保存</button></div>`;
+    $("#epSave").addEventListener("click", async ()=>{
+      try{ await api("/api/admin/products/"+x.id,{method:"PUT",body:{name:$("#epName").value, price:Number($("#epPrice").value||0),
+        category_id:$("#epCat").value?Number($("#epCat").value):null, stock_mode:$("#epMode").value,
+        cover:$("#epCover").value.trim(), description:$("#epDesc").value, status:x.status, sort:Number($("#epSort").value||0)}});
+        toast("已保存"); loadAdmin(); }catch(e){ toast(e.message); }
+    });
+  }));
+}
+async function adminCardsView(){
+  const p = await api("/api/admin/products"); adminProducts = p.list;
+  if(!cardPid && adminProducts.length) cardPid = adminProducts[0].id;
+  $("#adminBody").innerHTML = `<div class="panel glass">
+    <h3>卡密库存</h3>
+    <div class="flex wrap2">
+      <select class="inp grow" id="cardProd">${adminProducts.map(x=>`<option value="${x.id}" ${x.id===cardPid?"selected":""}>${esc(x.name)}（剩 ${x.stock}）</option>`).join("")}</select>
+      <select class="inp" id="cardFilter" style="width:120px"><option value="">全部</option><option value="available">未售</option><option value="sold">已售</option></select>
+    </div>
+    <label class="lb">批量导入（一行一张，逗号/分号也能分隔，一次最多 5000 张）</label>
+    <textarea class="inp" id="cardCodes" placeholder="CARD-XXXX-001&#10;CARD-XXXX-002"></textarea>
+    <button class="btn press mt8" id="cardAdd">导入卡密</button>
+    <div id="cardList" class="mt14"></div></div>`;
+  async function refresh(){
+    const st = $("#cardFilter").value;
+    const d = await api(`/api/admin/products/${cardPid}/cards`+(st?`?status=${st}`:""));
+    $("#cardList").innerHTML = d.list.length ? `<div class="tblwrap"><table class="tb"><thead><tr><th>卡密</th><th>状态</th><th>售出时间</th><th></th></tr></thead>
+      <tbody>${d.list.map(c=>`<tr><td><code class="codemono">${esc(c.code)}</code></td>
+      <td>${c.status==="available"?'<span class="st done">未售</span>':'<span class="st pending">已售</span>'}</td>
+      <td class="small">${esc(c.time||"—")}</td>
+      <td>${c.status==="available"?`<button class="btn danger sm press" data-cdel="${c.id}">删除</button>`:""}</td></tr>`).join("")}</tbody></table></div>`
+      : '<div class="empty">没有卡密</div>';
+    document.querySelectorAll("[data-cdel]").forEach(b=>b.addEventListener("click", async ()=>{
+      try{ await api("/api/admin/cards/"+b.dataset.cdel,{method:"DELETE"}); refresh(); }catch(e){ toast(e.message); }
+    }));
+  }
+  $("#cardProd").addEventListener("change", e=>{ cardPid = Number(e.target.value); refresh(); });
+  $("#cardFilter").addEventListener("change", refresh);
+  $("#cardAdd").addEventListener("click", async ()=>{
+    try{ const d = await api(`/api/admin/products/${cardPid}/cards`,{method:"POST",body:{codes:$("#cardCodes").value}});
+      toast("已导入 "+d.added+" 张"); $("#cardCodes").value=""; refresh(); }catch(e){ toast(e.message); }
+  });
+  refresh();
+}
+async function adminOrdersView(st){
+  const d = await api("/api/admin/orders"+(st?`?status=${st}`:""));
+  $("#adminBody").innerHTML = `<div class="panel glass">
+    <h3>订单管理</h3>
+    <div class="flex wrap2">
+      ${[["","全部"],["pending","待发货"],["done","已完成"],["cancelled","已取消"]].map(([v,t])=>`<button class="qamt press ${st===v?"on":""}" data-ost="${v}">${t}</button>`).join("")}
+    </div>
+    <div class="mt8">${d.list.length ? d.list.map(o=>orderHtml(o,true) + (o.status==="pending" ? `
+      <div class="flex wrap2 mb8">
+        <input class="inp grow" id="ful-${o.id}" placeholder="发货卡密（一行一张；留空则从库存自动取）">
+        <button class="btn sm press" data-ful="${o.id}">发货</button>
+        <button class="btn danger sm press" data-ocx="${o.id}">取消并退款</button>
+      </div>` : "")).join("") : '<div class="empty">暂无订单</div>'}</div></div>`;
+  bindCopy();
+  document.querySelectorAll("[data-ost]").forEach(b=>b.addEventListener("click", ()=>adminOrdersView(b.dataset.ost)));
+  document.querySelectorAll("[data-ful]").forEach(b=>b.addEventListener("click", async ()=>{
+    try{ await api(`/api/admin/orders/${b.dataset.ful}/fulfill`,{method:"POST",body:{codes:$("#ful-"+b.dataset.ful).value}});
+      toast("已发货"); loadAdmin(); }catch(e){ toast(e.message); }
+  }));
+  document.querySelectorAll("[data-ocx]").forEach(b=>b.addEventListener("click", async ()=>{
+    if(!confirm("取消订单并把钱退回买家余额？")) return;
+    try{ await api(`/api/admin/orders/${b.dataset.ocx}/cancel`,{method:"POST",body:{}}); toast("已取消并退款"); loadAdmin(); }catch(e){ toast(e.message); }
+  }));
+}
+async function adminUsersView(qstr){
+  const d = await api("/api/admin/users"+(qstr?`?q=${encodeURIComponent(qstr)}`:""));
+  $("#adminBody").innerHTML = `<div class="panel glass">
+    <h3>用户</h3>
+    <div class="flex"><input class="inp grow" id="uSearch" placeholder="搜用户名" value="${esc(qstr)}"><button class="btn press" id="uSearchBtn">搜索</button></div>
+    <div class="tblwrap mt14"><table class="tb"><thead><tr><th>用户</th><th>余额</th><th>注册时间</th><th>状态</th><th>操作</th></tr></thead>
+    <tbody>${d.list.map(u=>`<tr><td><b>${esc(u.username)}</b>${u.is_admin?' <span class="small">管理员</span>':""}</td>
+      <td class="num">${fmt(u.balance)}</td><td class="small">${esc(u.time)}</td>
+      <td>${u.status?'<span class="st done">正常</span>':'<span class="st cancelled">已禁用</span>'}</td>
+      <td><div class="flex wrap2">
+        <button class="btn ghost sm press" data-adj="${u.id}">调余额</button>
+        ${u.is_admin?"":`<button class="btn ghost sm press" data-ust="${u.id}" data-s="${u.status}">${u.status?"禁用":"启用"}</button>`}
+      </div></td></tr>`).join("")}</tbody></table></div></div>`;
+  $("#uSearchBtn").addEventListener("click", ()=>adminUsersView($("#uSearch").value.trim()));
+  document.querySelectorAll("[data-adj]").forEach(b=>b.addEventListener("click", async ()=>{
+    const v = prompt("调整金额（正数加、负数减）："); if(v===null) return;
+    const amount = Number(v); if(!amount) return toast("金额不对");
+    try{ await api(`/api/admin/users/${b.dataset.adj}/balance`,{method:"POST",body:{amount, remark:"后台手动调整"}}); toast("已调整"); loadAdmin(); }catch(e){ toast(e.message); }
+  }));
+  document.querySelectorAll("[data-ust]").forEach(b=>b.addEventListener("click", async ()=>{
+    try{ await api(`/api/admin/users/${b.dataset.ust}/status`,{method:"POST",body:{status: b.dataset.s==="1"?0:1}}); loadAdmin(); }catch(e){ toast(e.message); }
+  }));
+}
+async function adminCatsView(){
+  const [c, n] = await Promise.all([api("/api/admin/categories"), api("/api/announcements")]);
+  adminCats = c.list;
+  $("#adminBody").innerHTML = `<div class="panel glass">
+    <h3>分类</h3>
+    <div class="flex"><input class="inp grow" id="ncName" placeholder="新分类名"><input class="inp num" id="ncSort" type="number" placeholder="排序" style="width:90px"><button class="btn press" id="ncAdd">添加</button></div>
+    <div class="mt8">${adminCats.map(x=>`<div class="rowitem flex"><span class="grow">${esc(x.name)}</span><button class="btn danger sm press" data-cdel2="${x.id}">删除</button></div>`).join("")}</div>
+    <h3 class="mt14">公告</h3>
+    <div class="flex"><input class="inp grow" id="naText" placeholder="新公告内容，短句就行"><button class="btn press" id="naAdd">发布</button></div>
+    <div class="mt8">${n.list.map(x=>`<div class="rowitem flex"><span class="grow mut">${esc(x.content)}</span><button class="btn danger sm press" data-adel="${x.id}">删除</button></div>`).join("")}</div>
+  </div>`;
+  $("#ncAdd").addEventListener("click", async ()=>{ try{ await api("/api/admin/categories",{method:"POST",body:{name:$("#ncName").value, sort:Number($("#ncSort").value||0)}}); loadAdmin(); }catch(e){ toast(e.message); } });
+  $("#naAdd").addEventListener("click", async ()=>{ try{ await api("/api/admin/announcements",{method:"POST",body:{content:$("#naText").value}}); loadAdmin(); }catch(e){ toast(e.message); } });
+  document.querySelectorAll("[data-cdel2]").forEach(b=>b.addEventListener("click", async ()=>{ if(!confirm("删除这个分类？")) return; try{ await api("/api/admin/categories/"+b.dataset.cdel2,{method:"DELETE"}); loadAdmin(); }catch(e){ toast(e.message); } }));
+  document.querySelectorAll("[data-adel]").forEach(b=>b.addEventListener("click", async ()=>{ try{ await api("/api/admin/announcements/"+b.dataset.adel,{method:"DELETE"}); loadAdmin(); }catch(e){ toast(e.message); } }));
+}
+async function adminLogsView(){
+  const d = await api("/api/admin/logs");
+  $("#adminBody").innerHTML = `<div class="panel glass"><h3>操作日志（充值 / 发卡 / 改价 / 删商品 / 发货）</h3>
+    ${d.list.length ? d.list.map(l=>`<div class="rowitem"><b>${esc(l.action)}</b> <span class="mut">${esc(l.detail)}</span>
+      <div class="small">${esc(l.actor)} · ${esc(l.time)}</div></div>`).join("") : '<div class="empty">暂无日志</div>'}</div>`;
+}
+
+/* ---------- 启动 ---------- */
+refreshMe().then(loadShop);
+</script>
+</body>
+</html>
