@@ -1,1 +1,1 @@
-{"forwardPorts":[8088],"image":"mcr.microsoft.com/devcontainers/python:3.12","name":"小黎卡网","portsAttributes":{"8088":{"label":"小黎卡网","onAutoForward":"notify","protocol":"http"}},"postStartCommand":"nohup python3 -u server.py > /tmp/cardnet.log 2>&1 &"}
+{"forwardPorts":[8088],"image":"mcr.microsoft.com/devcontainers/python:3.12","name":"雪梨卡网系统","portsAttributes":{"8088":{"label":"雪梨卡网系统","onAutoForward":"notify","protocol":"http"}},"postStartCommand":"nohup python3 -u server.py > /tmp/cardnet.log 2>&1 &"}

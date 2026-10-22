@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
-<title>小黎卡网</title>
+<title>雪梨卡网系统</title>
 <style>
 /* ===== 设计令牌：iOS 黑白体系，跟随系统自动深/浅色 ===== */
 :root{
@@ -54,6 +54,7 @@ body{
   font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Microsoft YaHei",sans-serif;
   background:var(--bg); color:var(--ink); min-height:100vh;
   transition:background .35s var(--ease), color .35s var(--ease);
+  touch-action:manipulation; -webkit-text-size-adjust:100%;
 }
 button,input,select,textarea{font:inherit;color:inherit}
 button{cursor:pointer;border:none;background:none}
@@ -70,7 +71,7 @@ header{position:sticky;top:0;z-index:50;background:var(--bar);
 .logo{display:flex;align-items:center;gap:8px;font-weight:700;font-size:17px;letter-spacing:.2px;white-space:nowrap}
 .logo .mark{width:27px;height:27px;border-radius:8px;background:var(--ink);color:var(--bg);display:grid;place-items:center;flex:none}
 .search{flex:1;display:flex;align-items:center;gap:7px;background:var(--surface2);border-radius:10px;padding:8px 12px;min-width:0}
-.search input{flex:1;background:none;border:none;outline:none;font-size:14.5px;min-width:0}
+.search input{flex:1;background:none;border:none;outline:none;font-size:16px;min-width:0}
 .search input::placeholder{color:var(--ink3)}
 .iconbtn{width:36px;height:36px;border-radius:50%;background:var(--surface2);display:grid;place-items:center;flex:none;color:var(--ink2)}
 .chipbtn{padding:8px 14px;border-radius:999px;background:var(--surface2);font-size:13.5px;white-space:nowrap;font-weight:550}
@@ -135,7 +136,7 @@ code.codemono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;b
 .st.cancelled{color:var(--bad);background:var(--bad-tint)}
 .amt-p{color:var(--ok)}.amt-m{color:var(--bad)}
 input.inp,select.inp,textarea.inp{width:100%;background:var(--surface2);border:1px solid transparent;border-radius:12px;
-  padding:11px 13px;font-size:14.5px;outline:none;transition:border-color .18s, background .18s}
+  padding:11px 13px;font-size:16px;outline:none;transition:border-color .18s, background .18s}
 input.inp:focus,select.inp:focus,textarea.inp:focus{border-color:var(--accent);background:var(--surface)}
 textarea.inp{resize:vertical;min-height:76px;line-height:1.5}
 label.lb{display:block;font-size:12.5px;color:var(--ink2);margin:12px 0 6px}
@@ -194,7 +195,7 @@ footer{padding:26px 0 8px;text-align:center;color:var(--ink3);font-size:12px;lin
   <div class="nav">
     <div class="logo"><span class="mark">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2.5" y="5" width="19" height="14" rx="3.5"/><path d="M2.5 10h19M6 15h4"/></svg>
-      </span>小黎卡网</div>
+      </span>雪梨卡网系统</div>
     <div class="search">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--ink3)" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.8-3.8"/></svg>
       <input id="searchInp" placeholder="搜索商品">
@@ -238,7 +239,7 @@ footer{padding:26px 0 8px;text-align:center;color:var(--ink3);font-size:12px;lin
     <div class="walletbal glass">
       <div class="k">余额（元）</div>
       <div class="v num" id="walletBal">--</div>
-      <div class="small">模拟充值即时到账，只用于演示，不涉及真实支付</div>
+      <div class="small">充值即时到账，每笔记录在下方资金明细里可核对</div>
       <div class="qrow" id="qAmts">
         <button class="qamt press num" data-a="10">10</button>
         <button class="qamt press num on" data-a="50">50</button>
@@ -281,7 +282,7 @@ footer{padding:26px 0 8px;text-align:center;color:var(--ink3);font-size:12px;lin
     <div id="adminBody"></div>
   </section>
 
-  <footer>小黎卡网 · 用户端与商户端同一套系统，管理员登录自动进入商户端<br>演示站：充值均为模拟，不收真实款项</footer>
+  <footer>雪梨卡网系统 · 用户端与商户端同一套系统，管理员登录自动进入商户端<br>卡密请截图保存，充值与消费记录可在资金明细中核对</footer>
 </div>
 
 <nav class="tabs" id="mainTabs">
@@ -357,7 +358,7 @@ footer{padding:26px 0 8px;text-align:center;color:var(--ink3);font-size:12px;lin
     <div style="text-align:center" class="mt14">
       <button class="mut press" id="authSwitch">没有账号？去注册</button>
     </div>
-    <div class="small" style="text-align:center;margin-top:10px">管理员演示账号：admin / admin123</div>
+    <div class="small" style="text-align:center;margin-top:10px">登录状态保持 30 天，下次打开不用重新登录</div>
   </div>
 </div>
 
@@ -367,7 +368,7 @@ footer{padding:26px 0 8px;text-align:center;color:var(--ink3);font-size:12px;lin
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const fmt = n => "¥" + Number(n||0).toFixed(2);
-let token = localStorage.getItem("lk_token") || "";
+let token = ""; // 登录态以 HttpOnly Cookie 为准，token 仅作接口兼容
 let me = null, curCat = "", curQ = "", buyItem = null, buyQty = 1, adminMode = "products",
     adminProducts = [], adminCats = [], cardPid = null, rechargeAmt = 50;
 
@@ -439,15 +440,14 @@ $("#authSubmit").addEventListener("click", async ()=>{
   try{
     if(!authIsLogin){ await api("/api/register",{method:"POST",body:{username,password}}); toast("注册成功，登录一下"); authIsLogin=true; $("#authSwitch").click(); return; }
     const d = await api("/api/login",{method:"POST",body:{username,password}});
-    token = d.token; me = d.user; localStorage.setItem("lk_token", token);
+    token = d.token; me = d.user;
     closeMask("authMask"); renderAuth();
     toast(me.is_admin ? "登录成功，已进入商户端权限" : "登录成功");
     if(me.is_admin) switchView("admin"); else loadShop();
   }catch(e){ toast(e.message); }
 });
 async function refreshMe(){
-  if(!token){ me=null; renderAuth(); return; }
-  try{ const d = await api("/api/me"); me = d.user; }catch(e){ token=""; localStorage.removeItem("lk_token"); me=null; }
+  try{ const d = await api("/api/me"); me = d.user; }catch(e){ token=""; me=null; }
   renderAuth();
 }
 function needLogin(){
@@ -582,7 +582,11 @@ async function loadWallet(){
     const d = await api("/api/wallet");
     animateNum($("#walletBal"), d.balance);
     me.balance = d.balance; renderAuth();
-    $("#acctBox").innerHTML = `当前账号：<b style="color:var(--ink)">${esc(me.username)}</b>${me.is_admin?"（管理员，可进商户端）":""}`;
+    $("#acctBox").innerHTML = `当前账号：<b style="color:var(--ink)">${esc(me.username)}</b>${me.is_admin?"（管理员，可进商户端）":""}
+      <div class="flex mt8"><span>我的 ID：<b class="num" style="color:var(--ink)">${me.id}</b></span>
+      <button class="copybtn press" data-copy="${me.id}">复制 ID</button></div>
+      <div class="small mt8">把这个 ID 发给管理员，对方就能按 ID 给你添加余额</div>`;
+    bindCopy();
     $("#walletLogs").innerHTML = d.logs.length ? d.logs.map(l=>`<div class="rowitem flex">
       <div class="grow"><div>${esc(l.reason)}</div><div class="small">${esc(l.time)}</div></div>
       <div class="num" style="font-weight:700"><span class="${l.amount>=0?"amt-p":"amt-m"}">${l.amount>=0?"+":""}${Number(l.amount).toFixed(2)}</span>
@@ -606,7 +610,7 @@ $("#rechargeBtn").addEventListener("click", async ()=>{
   const amount = custom>0 ? custom : rechargeAmt;
   try{
     await api("/api/recharge",{method:"POST",body:{amount}});
-    toast("充值成功（模拟）"); loadWallet();
+    toast("充值成功"); loadWallet();
   }catch(e){ toast(e.message); }
 });
 $("#chgPwBtn").addEventListener("click", async ()=>{
@@ -770,10 +774,11 @@ async function adminOrdersView(st){
 async function adminUsersView(qstr){
   const d = await api("/api/admin/users"+(qstr?`?q=${encodeURIComponent(qstr)}`:""));
   $("#adminBody").innerHTML = `<div class="panel glass">
-    <h3>用户与余额（商户可直接修改用户余额）</h3>
-    <div class="flex"><input class="inp grow" id="uSearch" placeholder="搜用户名" value="${esc(qstr)}"><button class="btn press" id="uSearchBtn">搜索</button></div>
-    <div class="tblwrap mt14"><table class="tb"><thead><tr><th>用户</th><th>余额</th><th>注册时间</th><th>状态</th><th>操作</th></tr></thead>
+    <h3>用户与余额（按 ID 或用户名找到人，直接改余额）</h3>
+    <div class="flex"><input class="inp grow" id="uSearch" placeholder="输入用户 ID 或用户名" value="${esc(qstr)}"><button class="btn press" id="uSearchBtn">搜索</button></div>
+    <div class="tblwrap mt14"><table class="tb"><thead><tr><th>用户</th><th>ID</th><th>余额</th><th>注册时间</th><th>状态</th><th>操作</th></tr></thead>
     <tbody>${d.list.map(u=>`<tr><td><b>${esc(u.username)}</b>${u.is_admin?' <span class="small">管理员</span>':""}</td>
+      <td class="num">${u.id}</td>
       <td class="num">${fmt(u.balance)}</td><td class="small">${esc(u.time)}</td>
       <td>${u.status?'<span class="st done">正常</span>':'<span class="st cancelled">已禁用</span>'}</td>
       <td><div class="flex wrap2">
@@ -782,7 +787,7 @@ async function adminUsersView(qstr){
       </div></td></tr>`).join("")}</tbody></table></div></div>`;
   $("#uSearchBtn").addEventListener("click", ()=>adminUsersView($("#uSearch").value.trim()));
   document.querySelectorAll("[data-adj]").forEach(b=>b.addEventListener("click", async ()=>{
-    const v = prompt("修改余额：输入调整金额（正数加、负数减）："); if(v===null) return;
+    const v = prompt(`给 ID ${b.dataset.adj} 修改余额：输入调整金额（正数加、负数减）：`); if(v===null) return;
     const amount = Number(v); if(!amount) return toast("金额不对");
     try{ await api(`/api/admin/users/${b.dataset.adj}/balance`,{method:"POST",body:{amount, remark:"商户后台修改余额"}}); toast("余额已修改"); loadAdmin(); }catch(e){ toast(e.message); }
   }));

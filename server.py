@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-小黎卡网 —— HTML + Python 后端 + SQLite 数据库（零第三方依赖，只用标准库）
+雪梨卡网系统 —— HTML + Python 后端 + SQLite 数据库（零第三方依赖，只用标准库）
 启动：python3 server.py          端口：环境变量 PORT，默认 8088
 数据：data/cardnet.db（自动建表 + 种子数据，重启不丢）
-管理员：admin / admin123（首次登录后请到「我的 → 改密码」修改）
+管理员：xueli / xueli888（ID 1000000；登录后请到「钱包 → 账号」修改密码）
 """
 import hashlib
 import json
@@ -99,10 +99,16 @@ def init_db():
       id INTEGER PRIMARY KEY AUTOINCREMENT, actor TEXT NOT NULL, action TEXT NOT NULL,
       detail TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL);
     """)
-    if not con.execute("SELECT 1 FROM users WHERE username='admin'").fetchone():
-        con.execute("INSERT INTO users(username,pass_hash,balance,is_admin,status,created_at) VALUES('admin',?,0,1,1,?)",
-                    (hash_pass("admin123"), now()))
-        print("[seed] 管理员已创建：admin / admin123")
+    if not con.execute("SELECT 1 FROM users WHERE username='xueli'").fetchone():
+        old = con.execute("SELECT id FROM users WHERE username='admin'").fetchone()
+        if old:
+            con.execute("UPDATE users SET username='xueli', pass_hash=? WHERE id=?",
+                        (hash_pass("xueli888"), old["id"]))
+            print("[seed] 管理员账号已迁移为 xueli")
+        else:
+            con.execute("INSERT INTO users(id,username,pass_hash,balance,is_admin,status,created_at) VALUES(1000000,'xueli',?,0,1,1,?)",
+                        (hash_pass("xueli888"), now()))
+            print("[seed] 管理员已创建：xueli（ID 1000000）")
     if con.execute("SELECT COUNT(*) c FROM categories").fetchone()["c"] == 0:
         cats = [("游戏点卡", 1), ("影视会员", 2), ("软件会员", 3), ("话费流量", 4)]
         con.executemany("INSERT INTO categories(name,sort) VALUES(?,?)", cats)
@@ -156,8 +162,19 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        for k, v in getattr(self, "extra_headers", {}).items():
+            self.send_header(k, v)
+        self.extra_headers = {}
         self.end_headers()
         self.wfile.write(body)
+
+    def session_cookie(self, token, clear=False):
+        secure = (self.headers.get("X-Forwarded-Proto") or "") == "https"
+        parts = ["lk_session=" + ("" if clear else token), "Path=/", "HttpOnly", "SameSite=Lax",
+                 "Max-Age=" + ("0" if clear else str(TOKEN_TTL))]
+        if secure:
+            parts.append("Secure")
+        return "; ".join(parts)
 
     def ok(self, data=None):
         self.send_json(dict(ok=True, **(data or {})))
@@ -173,9 +190,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def auth(self, con):
         m = re.match(r"Bearer\s+([0-9a-f]{64})", self.headers.get("Authorization") or "")
-        if not m:
+        token = m.group(1) if m else ""
+        if not token:
+            cm = re.search(r"(?:^|;\s*)lk_session=([0-9a-f]{64})", self.headers.get("Cookie") or "")
+            token = cm.group(1) if cm else ""
+        if not token:
             return None
-        s = con.execute("SELECT * FROM sessions WHERE token=?", (m.group(1),)).fetchone()
+        s = con.execute("SELECT * FROM sessions WHERE token=?", (token,)).fetchone()
         if not s or s["expires_at"] < now():
             return None
         u = con.execute("SELECT id,username,balance,is_admin,status,created_at FROM users WHERE id=?", (s["user_id"],)).fetchone()
@@ -316,6 +337,7 @@ class Handler(BaseHTTPRequestHandler):
             with LOCK:
                 con.execute("INSERT INTO sessions(token,user_id,expires_at) VALUES(?,?,?)", (token, u["id"], now() + TOKEN_TTL))
                 con.commit()
+            self.extra_headers = {"Set-Cookie": self.session_cookie(token)}
             return self.ok(dict(token=token, user=dict(id=u["id"], username=u["username"], balance=u["balance"], is_admin=bool(u["is_admin"]))))
 
         # ---------- 以下需登录 ----------
@@ -324,8 +346,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.ok(dict(user=dict(id=me["id"], username=me["username"], balance=me["balance"], is_admin=bool(me["is_admin"]))))
         if p == "/api/logout" and m == "POST":
             token = (self.headers.get("Authorization") or "").split(" ")[-1]
+            if not re.fullmatch(r"[0-9a-f]{64}", token or ""):
+                cm = re.search(r"(?:^|;\s*)lk_session=([0-9a-f]{64})", self.headers.get("Cookie") or "")
+                token = cm.group(1) if cm else ""
             with LOCK:
                 con.execute("DELETE FROM sessions WHERE token=?", (token,)); con.commit()
+            self.extra_headers = {"Set-Cookie": self.session_cookie("", clear=True)}
             return self.ok()
         if p == "/api/change-password" and m == "POST":
             b = self.body()
@@ -338,6 +364,7 @@ class Handler(BaseHTTPRequestHandler):
             with LOCK:
                 con.execute("UPDATE users SET pass_hash=? WHERE id=?", (hash_pass(npw), me["id"]))
                 con.execute("DELETE FROM sessions WHERE user_id=?", (me["id"],)); con.commit()
+            self.extra_headers = {"Set-Cookie": self.session_cookie("", clear=True)}
             return self.ok(dict(msg="密码已修改，请重新登录"))
 
         # ---------- 下单（原子扣库存 + 扣余额） ----------
@@ -396,7 +423,7 @@ class Handler(BaseHTTPRequestHandler):
                                 time=fmt_time(o["created_at"]), cards=cards))
             return self.ok(dict(list=out))
 
-        # ---------- 钱包（模拟充值即时到账） ----------
+        # ---------- 钱包（充值即时到账） ----------
         if p == "/api/wallet" and m == "GET":
             bal = con.execute("SELECT balance FROM users WHERE id=?", (me["id"],)).fetchone()["balance"]
             logs = [dict(amount=r["amount"], balance_after=r["balance_after"], reason=r["reason"], time=fmt_time(r["created_at"]))
@@ -413,10 +440,10 @@ class Handler(BaseHTTPRequestHandler):
                 nb = money(bal + amount)
                 con.execute("UPDATE users SET balance=? WHERE id=?", (nb, me["id"]))
                 con.execute("INSERT INTO wallet_logs(user_id,amount,balance_after,reason,created_at) VALUES(?,?,?,?,?)",
-                            (me["id"], amount, nb, "模拟充值", now()))
-                op_log(con, me["username"], "充值", "模拟充值 %.2f" % amount)
+                            (me["id"], amount, nb, "账户充值", now()))
+                op_log(con, me["username"], "充值", "充值 %.2f" % amount)
                 con.commit()
-            return self.ok(dict(balance=nb, msg="充值成功（模拟）"))
+            return self.ok(dict(balance=nb, msg="充值成功"))
 
         # ---------- 管理后台 ----------
         admin = self.need_admin(con)
@@ -441,7 +468,9 @@ class Handler(BaseHTTPRequestHandler):
             qq = q.get("q", [""])[0].strip()
             sql = "SELECT id,username,balance,is_admin,status,created_at FROM users ORDER BY id DESC LIMIT 200"
             args = []
-            if qq:
+            if qq and qq.isdigit():
+                sql = "SELECT id,username,balance,is_admin,status,created_at FROM users WHERE id=? OR username LIKE ? ORDER BY id DESC LIMIT 200"; args = [int(qq), "%" + qq + "%"]
+            elif qq:
                 sql = "SELECT id,username,balance,is_admin,status,created_at FROM users WHERE username LIKE ? ORDER BY id DESC LIMIT 200"; args = ["%" + qq + "%"]
             return self.ok(dict(list=[dict(id=r["id"], username=r["username"], balance=r["balance"], is_admin=bool(r["is_admin"]),
                                             status=r["status"], time=fmt_time(r["created_at"])) for r in con.execute(sql, args)]))
@@ -641,5 +670,5 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     init_db()
-    print("[小黎卡网] 已启动 http://127.0.0.1:%d  数据库 %s" % (PORT, DB_PATH))
+    print("[雪梨卡网系统] 已启动 http://127.0.0.1:%d  数据库 %s" % (PORT, DB_PATH))
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
