@@ -991,6 +991,7 @@ async function adminStoresView(){
     <div class="fld"><label>专属链接后缀（顾客打开 你的域名/?store=后缀 进店，注册自动记到这家分店）</label><input class="inp" id="stSlug" placeholder="小写字母/数字，比如 chengnan" maxlength="31"></div>
     <div class="fld"><label>分店账号（分店主用它登录看自己店的数据）</label><input class="inp" id="stUser" placeholder="给分店主起个登录名" maxlength="20"></div>
     <div class="fld"><label>分店密码（你定，之后也能在这里改）</label><input class="inp" id="stPw" placeholder="至少 6 位" maxlength="64"></div>
+    <div class="fld"><label>分成比例 %（这家分店卖出的钱，分给分店主多少；0 = 不分）</label><input class="inp" id="stRate" type="number" min="0" max="100" step="0.5" placeholder="比如 20"></div>
     <button class="btn press" id="stCreate" style="width:100%">创建分店</button>
     <div class="small mt8">分店主登录后只能看到自己分店的顾客、订单和销售额，不能动商品、价格和别人的钱。</div></div>
   <div class="panel glass"><h3>已有分店（${d.list.length}）</h3>
@@ -998,16 +999,23 @@ async function adminStoresView(){
       <div class="flex"><b class="grow">${esc(s.name)}${s.status ? "" : ' <span class="st cancelled">已停用</span>'}</b><span class="small">${s.members} 位顾客 · ${s.orders} 单 · 销售额 ${fmt(s.revenue)}</span></div>
       <div class="small mt8">分店链接：<span style="color:var(--accent)">${esc(link(s.slug))}</span> <button class="btn ghost sm press" data-copy="${esc(link(s.slug))}">复制链接</button></div>
       <div class="small">分店账号：${esc(s.owner)} · 开店于 ${esc(s.time)}</div>
+      <div class="small">分成比例：${s.commission}% · 累计应分给分店主：<b style="color:var(--gold)">${fmt(s.commission_due)}</b>（现金在你手里，按这个数线下结给他）</div>
       <div class="flex mt8"><button class="btn ghost sm press" data-storepw="${s.id}">改密码</button>
+      <button class="btn ghost sm press" data-storerate="${s.id}" data-rate="${s.commission}">改分成</button>
       <button class="btn ghost sm press" data-storetoggle="${s.id}" data-on="${s.status}">${s.status ? "停用" : "启用"}</button>
       <button class="btn ghost sm press" data-storedel="${s.id}" style="color:var(--bad)">删除</button></div></div>`).join("") : '<div class="empty">还没有分店</div>'}
   </div>`;
   $("#stCreate").addEventListener("click", async ()=>{
-    const body = {name: $("#stName").value.trim(), slug: $("#stSlug").value.trim(), username: $("#stUser").value.trim(), password: $("#stPw").value};
+    const body = {name: $("#stName").value.trim(), slug: $("#stSlug").value.trim(), username: $("#stUser").value.trim(), password: $("#stPw").value, commission: parseFloat($("#stRate").value || "0")};
     if(!body.name || !body.slug || !body.username || !body.password) return toast("四项都要填");
     try{ await api("/api/admin/stores", {method:"POST", body}); toast("分店已创建，把链接发给分店主吧"); adminStoresView(); }catch(e){ toast(e.message); }
   });
   document.querySelectorAll("[data-copy]").forEach(b=>b.addEventListener("click", ()=>copyTxt(b.dataset.copy, b)));
+  document.querySelectorAll("[data-storerate]").forEach(b=>b.addEventListener("click", async ()=>{
+    const v = prompt("新的分成比例 %（0-100）。注意：改了之后，历史销售额的应分也会按新比例重算：", b.dataset.rate); if(v === null) return;
+    const rate = parseFloat(v); if(isNaN(rate) || rate < 0 || rate > 100) return toast("比例要在 0-100 之间");
+    try{ await api(`/api/admin/stores/${b.dataset.storerate}`, {method:"PUT", body:{commission: rate}}); toast("分成比例已改为 " + rate + "%"); adminStoresView(); }catch(e){ toast(e.message); }
+  }));
   document.querySelectorAll("[data-storepw]").forEach(b=>b.addEventListener("click", async ()=>{
     const pw = prompt("给这个分店账号设新密码（至少 6 位）："); if(!pw) return;
     try{ await api(`/api/admin/stores/${b.dataset.storepw}/password`, {method:"POST", body:{password: pw}}); toast("密码已改，分店主下次用新密码登录"); }catch(e){ toast(e.message); }
@@ -1027,9 +1035,10 @@ async function adminStoresView(){
 /* ===== 分店主：我的分店 ===== */
 async function storeHomeView(){
   if(!(me && me.is_store)) return;
-  if(me.store) $("#storeSub").textContent = me.store.name + " · 你的分店链接：" + location.origin + "/?store=" + me.store.slug;
+  if(me.store) $("#storeSub").textContent = me.store.name + " · 你的分店链接：" + location.origin + "/?store=" + me.store.slug + " · 分成比例 " + (me.store.commission ?? 0) + "%";
   const [s, u, o] = await Promise.all([api("/api/store/stats"), api("/api/store/users"), api("/api/store/orders")]);
   const cards = [["今日销售额", fmt(s.today_revenue)], ["本月销售额", fmt(s.month_revenue)], ["累计销售额", fmt(s.total_revenue)],
+    ["本月应分", fmt(s.commission_month)], ["累计应分", fmt(s.commission_total)],
     ["分店顾客", s.members], ["订单数", s.orders], ["待发货", s.pending_orders]];
   $("#storeBody").innerHTML = `
     <div class="stats">${cards.map(([k,v])=>`<div class="stat glass"><div class="k">${k}</div><div class="v num">${v}</div></div>`).join("")}</div>

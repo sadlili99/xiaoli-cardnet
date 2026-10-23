@@ -107,8 +107,12 @@ def init_db():
       created_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS stores(
       id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, slug TEXT UNIQUE NOT NULL,
-      owner_id INTEGER, status INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL);
+      owner_id INTEGER, status INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL,
+      commission REAL NOT NULL DEFAULT 0);
     """)
+    scols = [r["name"] for r in con.execute("PRAGMA table_info(stores)")]
+    if "commission" not in scols:
+        con.execute("ALTER TABLE stores ADD COLUMN commission REAL NOT NULL DEFAULT 0")
     # 分店归属字段（老库自动补列，数据保留）
     ucols = [r["name"] for r in con.execute("PRAGMA table_info(users)")]
     if "store_id" not in ucols:
@@ -393,9 +397,9 @@ class Handler(BaseHTTPRequestHandler):
         d = dict(id=u["id"], username=u["username"], balance=u["balance"],
                  is_admin=bool(u["is_admin"]), is_store=bool(u["is_store"] or 0))
         if u["is_store"] and u["store_id"]:
-            st = con.execute("SELECT id,name,slug FROM stores WHERE id=?", (u["store_id"],)).fetchone()
+            st = con.execute("SELECT id,name,slug,commission FROM stores WHERE id=?", (u["store_id"],)).fetchone()
             if st:
-                d["store"] = dict(id=st["id"], name=st["name"], slug=st["slug"])
+                d["store"] = dict(id=st["id"], name=st["name"], slug=st["slug"], commission=st["commission"])
         return d
 
     # ---------- routing ----------
@@ -577,13 +581,18 @@ class Handler(BaseHTTPRequestHandler):
                 day0 = int(time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, -1)))
                 mon0 = int(time.mktime((lt.tm_year, lt.tm_mon, 1, 0, 0, 0, 0, 0, -1)))
                 q = lambda sql, a=(): con.execute(sql, a).fetchone()["v"]
+                rate = con.execute("SELECT commission FROM stores WHERE id=?", (sid,)).fetchone()["commission"]
+                month_rev = q("SELECT COALESCE(SUM(total_price),0) v FROM orders WHERE store_id=? AND " + SOLD + " AND created_at>=?", (sid, mon0))
+                total_rev = q("SELECT COALESCE(SUM(total_price),0) v FROM orders WHERE store_id=? AND " + SOLD, (sid,))
                 return self.ok(dict(
                     members=q("SELECT COUNT(*) v FROM users WHERE store_id=? AND is_store=0", (sid,)),
                     orders=q("SELECT COUNT(*) v FROM orders WHERE store_id=? AND " + SOLD, (sid,)),
                     pending_orders=q("SELECT COUNT(*) v FROM orders WHERE store_id=? AND status='pending'", (sid,)),
                     today_revenue=q("SELECT COALESCE(SUM(total_price),0) v FROM orders WHERE store_id=? AND " + SOLD + " AND created_at>=?", (sid, day0)),
-                    month_revenue=q("SELECT COALESCE(SUM(total_price),0) v FROM orders WHERE store_id=? AND " + SOLD + " AND created_at>=?", (sid, mon0)),
-                    total_revenue=q("SELECT COALESCE(SUM(total_price),0) v FROM orders WHERE store_id=? AND " + SOLD, (sid,))))
+                    month_revenue=month_rev, total_revenue=total_rev,
+                    commission=rate,
+                    commission_month=money(month_rev * rate / 100),
+                    commission_total=money(total_rev * rate / 100)))
             if p == "/api/store/users" and m == "GET":
                 rows = con.execute("SELECT id,username,balance,created_at FROM users WHERE store_id=? AND is_store=0 ORDER BY id DESC LIMIT 200", (sid,)).fetchall()
                 return self.ok(dict(list=[dict(id=r["id"], username=r["username"], balance=r["balance"], time=fmt_time(r["created_at"])) for r in rows]))
@@ -884,7 +893,7 @@ class Handler(BaseHTTPRequestHandler):
         # ---------- 分店管理（总管理员） ----------
         if p == "/api/admin/stores" and m == "GET":
             rows = con.execute("""
-                SELECT s.id,s.name,s.slug,s.status,s.created_at, u.username AS owner_name,
+                SELECT s.id,s.name,s.slug,s.status,s.created_at,s.commission, u.username AS owner_name,
                   (SELECT COUNT(*) FROM users mu WHERE mu.store_id=s.id AND mu.is_store=0) AS members,
                   (SELECT COUNT(*) FROM orders o WHERE o.store_id=s.id AND o.status IN ('done','pending')) AS order_count,
                   (SELECT COALESCE(SUM(o.total_price),0) FROM orders o WHERE o.store_id=s.id AND o.status IN ('done','pending')) AS revenue
@@ -892,6 +901,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.ok(dict(list=[dict(id=r["id"], name=r["name"], slug=r["slug"], status=r["status"],
                                            owner=r["owner_name"] or "", members=r["members"],
                                            orders=r["order_count"], revenue=r["revenue"],
+                                           commission=r["commission"],
+                                           commission_due=money(r["revenue"] * r["commission"] / 100),
                                            time=fmt_time(r["created_at"])) for r in rows]))
         if p == "/api/admin/stores" and m == "POST":
             b = self.body()
@@ -911,8 +922,14 @@ class Handler(BaseHTTPRequestHandler):
                 raise ApiError("分店账号已被占用（和已有用户名撞了）")
             if not (6 <= len(pw) <= 64):
                 raise ApiError("分店密码长度需 6-64 位")
+            try:
+                rate = float(b.get("commission") or 0)
+            except Exception:
+                raise ApiError("分成比例要是数字")
+            if not (0 <= rate <= 100):
+                raise ApiError("分成比例需在 0-100 之间")
             with LOCK:
-                cur = con.execute("INSERT INTO stores(name,slug,status,created_at) VALUES(?,?,1,?)", (name[:30], slug, now()))
+                cur = con.execute("INSERT INTO stores(name,slug,status,created_at,commission) VALUES(?,?,1,?,?)", (name[:30], slug, now(), rate))
                 sid2 = cur.lastrowid
                 cur = con.execute("INSERT INTO users(username,pass_hash,balance,is_admin,is_store,store_id,status,created_at) VALUES(?,?,0,0,1,?,1,?)",
                                   (uname, hash_pass(pw), sid2, now()))
@@ -934,8 +951,14 @@ class Handler(BaseHTTPRequestHandler):
             if dup:
                 raise ApiError("这个链接后缀已被占用")
             status = int(b.get("status", st["status"]))
+            try:
+                rate = float(b.get("commission", st["commission"]))
+            except Exception:
+                raise ApiError("分成比例要是数字")
+            if not (0 <= rate <= 100):
+                raise ApiError("分成比例需在 0-100 之间")
             with LOCK:
-                con.execute("UPDATE stores SET name=?, slug=?, status=? WHERE id=?", (name[:30], slug, status, sid2))
+                con.execute("UPDATE stores SET name=?, slug=?, status=?, commission=? WHERE id=?", (name[:30], slug, status, rate, sid2))
                 con.execute("UPDATE users SET status=? WHERE id=?", (status, st["owner_id"]))
                 if status == 0:
                     con.execute("DELETE FROM sessions WHERE user_id=?", (st["owner_id"],))
