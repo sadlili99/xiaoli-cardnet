@@ -194,7 +194,7 @@ footer{padding:26px 0 8px;text-align:center;color:var(--ink3);font-size:12px;lin
 .msgrow.me{align-self:flex-end;align-items:flex-end}
 .msgrow.them{align-self:flex-start;align-items:flex-start}
 .bubble{padding:9px 12px;border-radius:16px;font-size:14.5px;line-height:1.55;word-break:break-word;white-space:pre-wrap;text-align:left}
-.msgrow.me .bubble{background:var(--blue);color:#fff;border-bottom-right-radius:6px}
+.msgrow.me .bubble{background:var(--accent);color:#fff;border-bottom-right-radius:6px}
 .msgrow.them .bubble{background:var(--surface2);color:var(--ink);border-bottom-left-radius:6px}
 .bubble img.chatimg{max-width:210px;width:100%;border-radius:10px;display:block}
 .msgtime{font-size:11px;color:var(--ink3);margin-top:3px;padding:0 4px}
@@ -212,6 +212,8 @@ footer{padding:26px 0 8px;text-align:center;color:var(--ink3);font-size:12px;lin
 body.chatopen #mainTabs{display:none}
 .stat.press{cursor:pointer}
 .barchart{width:100%;height:auto;display:block}
+.barchart .bar{fill:var(--accent)}
+.barchart .barz{fill:var(--surface3)}
 .servicebadge{position:relative}
 .unreaddot{min-width:18px;height:18px;border-radius:9px;background:#ff3b30;color:#fff;font-size:11px;display:inline-flex;align-items:center;justify-content:center;padding:0 5px;margin-left:6px;vertical-align:2px}
 </style>
@@ -922,9 +924,10 @@ async function adminHomeView(){
   const maxRev = Math.max(1, ...s.daily.map(d=>d.revenue));
   const W = 560, H = 168, base = 138, bw = W / s.daily.length;
   const bars = s.daily.map((d, i)=>{
-    const h = Math.max(d.revenue > 0 ? 4 : 1.5, d.revenue / maxRev * 112);
+    const h = Math.max(d.revenue > 0 ? 4 : 1.5, d.revenue / maxRev * 104);
     const x = i * bw + bw * 0.19, y = base - h, w = bw * 0.62;
-    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="3.5" fill="${d.revenue > 0 ? "var(--blue)" : "var(--line)"}"><title>${d.date} · 销售额 ${fmt(d.revenue)} · ${d.orders} 单</title></rect>
+    return `<rect class="${d.revenue > 0 ? "bar" : "barz"}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="3.5"><title>${d.date} · 销售额 ${fmt(d.revenue)} · ${d.orders} 单</title></rect>
+    ${d.revenue > 0 ? `<text x="${(i * bw + bw / 2).toFixed(1)}" y="${(y - 5).toFixed(1)}" font-size="9" fill="var(--ink2)" text-anchor="middle">${d.revenue >= 1000 ? (d.revenue/1000).toFixed(1) + "k" : Math.round(d.revenue)}</text>` : ""}
     <text x="${(i * bw + bw / 2).toFixed(1)}" y="${base + 17}" font-size="9.5" fill="var(--ink3)" text-anchor="middle">${d.date.slice(3)}</text>`;
   }).join("");
   const cards = [
@@ -934,7 +937,7 @@ async function adminHomeView(){
     ["用户数", s.users, "users"], ["在售商品", s.products, "products"], ["客服未读", s.unread_chats + " 条", "service"]];
   $("#adminBody").innerHTML = `
     <div class="stats" style="margin-top:2px">${cards.map(([k,v,go])=>`<div class="stat glass press" data-go="${go}"><div class="k">${k}</div><div class="v num">${v}</div><div class="small" style="color:var(--ink3)">点击查看 ›</div></div>`).join("")}</div>
-    <div class="panel glass"><h3>近 14 天销售额（点柱子看当天明细）</h3>
+    <div class="panel glass"><h3>销售统计图 · 近 14 天（点柱子看当天明细）</h3>
       <svg class="barchart" viewBox="0 0 ${W} ${H}"><line x1="0" y1="${base}" x2="${W}" y2="${base}" stroke="var(--line)"/>${bars}</svg>
       <div class="small">14 天合计 ${fmt(s.daily.reduce((a,d)=>a+d.revenue,0))} · ${s.daily.reduce((a,d)=>a+d.orders,0)} 单</div></div>
     ${s.top_products.length ? `<div class="panel glass"><h3>热销商品</h3>${s.top_products.map((x,i)=>`<div class="rowitem flex"><span class="grow">${i+1}. ${esc(x.name)}</span><span class="small">卖 ${x.qty} 件 · ${fmt(x.amount)}</span></div>`).join("")}</div>` : ""}
