@@ -163,6 +163,35 @@ def stock_of(con, pid):
     return con.execute("SELECT COUNT(*) c FROM cards WHERE product_id=? AND status='available'", (pid,)).fetchone()["c"]
 
 
+def shop_owner_id(con):
+    r = con.execute("SELECT id FROM users WHERE is_admin=1 ORDER BY id LIMIT 1").fetchone()
+    return r["id"] if r else None
+
+
+def credit_sale(con, total, order_no, product_name, buyer_name, t):
+    """订单成交：货款记入店主余额，并在店主资金明细里留一笔「订单收入」。"""
+    aid = shop_owner_id(con)
+    if not aid:
+        return
+    bal = con.execute("SELECT balance FROM users WHERE id=?", (aid,)).fetchone()["balance"]
+    nb = money(bal + total)
+    con.execute("UPDATE users SET balance=? WHERE id=?", (nb, aid))
+    con.execute("INSERT INTO wallet_logs(user_id,amount,balance_after,reason,created_at) VALUES(?,?,?,?,?)",
+                (aid, total, nb, "订单收入 %s（%s · 买家 %s）" % (order_no, product_name, buyer_name), t))
+
+
+def debit_sale(con, total, order_no, product_name, t):
+    """订单取消退款：把先前入账的货款从店主余额扣回，资金明细留一笔「订单退款扣回」。"""
+    aid = shop_owner_id(con)
+    if not aid:
+        return
+    bal = con.execute("SELECT balance FROM users WHERE id=?", (aid,)).fetchone()["balance"]
+    nb = money(bal - total)
+    con.execute("UPDATE users SET balance=? WHERE id=?", (nb, aid))
+    con.execute("INSERT INTO wallet_logs(user_id,amount,balance_after,reason,created_at) VALUES(?,?,?,?,?)",
+                (aid, -total, nb, "订单退款扣回 %s（%s）" % (order_no, product_name), t))
+
+
 def op_log(con, actor, action, detail=""):
     con.execute("INSERT INTO op_logs(actor,action,detail,created_at) VALUES(?,?,?,?)",
                 (actor, action, str(detail)[:500], now()))
@@ -656,6 +685,7 @@ class Handler(BaseHTTPRequestHandler):
                         con.execute("UPDATE users SET balance=? WHERE id=?", (nb, me["id"]))
                         con.execute("INSERT INTO wallet_logs(user_id,amount,balance_after,reason,created_at) VALUES(?,?,?,?,?)",
                                     (me["id"], -total, nb, "购买 %s x%d（%s）" % (pr["name"], qty, order_no), t))
+                        credit_sale(con, total, order_no, pr["name"], me["username"], t)
                         for r in rows:
                             con.execute("UPDATE cards SET status='sold',order_id=?,sold_to=?,sold_at=? WHERE id=?", (oid, me["id"], t, r["id"]))
                         op_log(con, me["username"], "发卡", "%s %s x%d" % (order_no, pr["name"], qty))
@@ -667,6 +697,7 @@ class Handler(BaseHTTPRequestHandler):
                     con.execute("UPDATE users SET balance=? WHERE id=?", (nb, me["id"]))
                     con.execute("INSERT INTO wallet_logs(user_id,amount,balance_after,reason,created_at) VALUES(?,?,?,?,?)",
                                 (me["id"], -total, nb, "购买 %s x%d（%s，待发货）" % (pr["name"], qty, order_no), t))
+                    credit_sale(con, total, order_no, pr["name"], me["username"], t)
                     con.commit()
                     return self.ok(dict(order_no=order_no, cards=[], balance=nb, pending=True))
                 except ApiError:
@@ -1124,6 +1155,7 @@ class Handler(BaseHTTPRequestHandler):
                     con.execute("UPDATE users SET balance=? WHERE id=?", (nb, o["user_id"]))
                     con.execute("INSERT INTO wallet_logs(user_id,amount,balance_after,reason,created_at) VALUES(?,?,?,?,?)",
                                 (o["user_id"], o["total_price"], nb, "订单取消退款（%s）" % o["order_no"], now()))
+                    debit_sale(con, o["total_price"], o["order_no"], o["product_name"], now())
                     con.commit()
                     return self.ok()
                 except ApiError:
