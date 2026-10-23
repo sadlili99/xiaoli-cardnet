@@ -243,6 +243,7 @@ body.chatopen #mainTabs{display:none}
   <section class="view on" id="view-shop">
     <div class="ptitle">商城</div>
     <div class="psub">自动发卡的商品拍下立刻出卡密，人工发货的会标出来</div>
+    <div class="small" id="storeHint" style="display:none;color:var(--accent);margin-bottom:8px"></div>
     <div id="noticeBox"></div>
     <div class="cats" id="catBox"></div>
     <div class="grid" id="prodGrid"></div>
@@ -316,6 +317,7 @@ body.chatopen #mainTabs{display:none}
       <button class="subtab press" data-at="cards">卡密库存</button>
       <button class="subtab press" data-at="orders">订单</button>
       <button class="subtab press" data-at="users">用户与余额</button>
+      <button class="subtab press" data-at="stores">分店</button>
       <button class="subtab press" data-at="cats">分类与公告</button>
       <button class="subtab press" data-at="logs">操作日志</button>
     </div>
@@ -326,6 +328,12 @@ body.chatopen #mainTabs{display:none}
     <div class="ptitle">客服</div>
     <div class="psub">用户咨询和充值都在这里谈，点开会话就能回复、发收款码、加余额</div>
     <div id="serviceBody"></div>
+  </section>
+
+  <section class="view" id="view-store">
+    <div class="ptitle">我的分店</div>
+    <div class="psub" id="storeSub">通过你的分店链接注册的顾客和他们的订单，都记在你的分店名下</div>
+    <div id="storeBody"></div>
   </section>
 
   <footer>雪梨卡网系统 · 用户端与商户端同一套系统，管理员登录自动进入商户端<br>卡密请截图保存，充值与消费记录可在资金明细中核对</footer>
@@ -350,6 +358,9 @@ body.chatopen #mainTabs{display:none}
   <button class="tab press" data-view="admin" id="adminTab" style="display:none">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2" transform="translate(-1 0)"/></svg>
     <span class="tb-label">商户端</span></button>
+  <button class="tab press" data-view="store" id="storeTab" style="display:none">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l1.5-5h15L21 9M3 9h18M3 9v10a1.5 1.5 0 001.5 1.5h15A1.5 1.5 0 0021 19V9"/><path d="M9 20.5v-6h6v6"/></svg>
+    <span class="tb-label">分店</span></button>
 </nav>
 
 <div class="mask" id="buyMask">
@@ -448,6 +459,14 @@ function applyTheme(){
   localStorage.setItem("lk_theme", themeMode);
 }
 applyTheme();
+/* ===== 分店归属：从分店链接 ?store=后缀 进来就记住，注册自动归属该分店 ===== */
+(()=>{ const s = new URLSearchParams(location.search).get("store"); if(s) localStorage.setItem("lk_store", s); })();
+async function showStoreName(){
+  const slug = localStorage.getItem("lk_store"); if(!slug) return;
+  try{ const d = await api("/api/storefront", {body:{slug}});
+    const el = $("#storeHint"); if(el){ el.style.display = ""; el.textContent = "你正在逛：" + d.store.name + " · 在这里注册下单，都记在这家分店名下"; } }
+  catch(e){ localStorage.removeItem("lk_store"); }
+}
 $("#themeBtn").addEventListener("click", ()=>{
   themeMode = themeMode==="auto" ? "light" : themeMode==="light" ? "dark" : "auto";
   applyTheme();
@@ -630,6 +649,7 @@ function renderAuth(){
     $("#adminTab").style.display = me.is_admin ? "" : "none";
     $("#serviceTab").style.display = me.is_admin ? "" : "none";
     $("#userServiceTab").style.display = me.is_admin ? "none" : "";
+    $("#storeTab").style.display = (me.is_store && !me.is_admin) ? "" : "none";
     const cb = $("#chatBtn"); if(cb){ cb.style.display = me.is_admin ? "none" : ""; if(!me.is_admin) checkUnread(); }
   } else {
     a.innerHTML = `<button class="chipbtn solid press" id="loginBtn">登录</button>`;
@@ -637,6 +657,7 @@ function renderAuth(){
     $("#adminTab").style.display = "none";
     $("#serviceTab").style.display = "none";
     $("#userServiceTab").style.display = "none";
+    $("#storeTab").style.display = "none";
     const cb = $("#chatBtn"); if(cb) cb.style.display = "none";
   }
 }
@@ -651,12 +672,12 @@ $("#authSubmit").addEventListener("click", async ()=>{
   const username = $("#authUser").value.trim(), password = $("#authPw").value;
   if(!username || !password) return toast("用户名和密码都要填");
   try{
-    if(!authIsLogin){ await api("/api/register",{method:"POST",body:{username,password}}); toast("注册成功，登录一下"); authIsLogin=true; $("#authSwitch").click(); return; }
+    if(!authIsLogin){ await api("/api/register",{method:"POST",body:{username,password,store_slug:localStorage.getItem("lk_store")||""}}); toast("注册成功，登录一下"); authIsLogin=true; $("#authSwitch").click(); return; }
     const d = await api("/api/login",{method:"POST",body:{username,password}});
     token = ""; me = d.user;
     closeMask("authMask"); renderAuth();
     toast(me.is_admin ? "登录成功，已进入商户端权限" : "登录成功");
-    if(me.is_admin) switchView("admin"); else loadShop();
+    if(me.is_admin) switchView("admin"); else if(me.is_store) switchView("store"); else loadShop();
   }catch(e){ toast(e.message); }
 });
 async function refreshMe(){
@@ -676,12 +697,14 @@ function switchView(v){
   if(v==="wallet") loadWallet();
   if(v==="admin") loadAdmin();
   if(v==="service") adminChatsView();
+  if(v==="store") storeHomeView();
   window.scrollTo({top:0, behavior:"smooth"});
 }
 document.querySelectorAll("#mainTabs .tab").forEach(t=>t.addEventListener("click", ()=>{
   if(t.dataset.view==="uservice"){ if(!needLogin()) return; if(me && me.is_admin) return switchView("service"); return openChat(); }
   if((t.dataset.view==="orders"||t.dataset.view==="wallet") && !needLogin()) return;
   if((t.dataset.view==="admin"||t.dataset.view==="service") && !(me&&me.is_admin)) return toast("需要管理员账号");
+  if(t.dataset.view==="store" && !(me&&me.is_store)) return toast("需要分店账号");
   switchView(t.dataset.view);
 }));
 
@@ -918,6 +941,7 @@ async function loadAdmin(){
     if(adminMode==="cards") return adminCardsView();
     if(adminMode==="orders") return adminOrdersView("");
     if(adminMode==="users") return adminUsersView("");
+    if(adminMode==="stores") return adminStoresView();
     if(adminMode==="cats") return adminCatsView();
     if(adminMode==="logs") return adminLogsView();
   }catch(e){ toast(e.message); }
@@ -956,6 +980,64 @@ async function adminHomeView(){
     if(go === "service") return switchView("service");
     goAdminSub(go);
   }));
+}
+/* ===== 商户端：分店管理 ===== */
+async function adminStoresView(){
+  const d = await api("/api/admin/stores");
+  const link = s => location.origin + "/?store=" + s;
+  $("#adminBody").innerHTML = `
+  <div class="panel glass"><h3>开一家分店</h3>
+    <div class="fld"><label>分店名</label><input class="inp" id="stName" placeholder="比如：城南分店" maxlength="30"></div>
+    <div class="fld"><label>专属链接后缀（顾客打开 你的域名/?store=后缀 进店，注册自动记到这家分店）</label><input class="inp" id="stSlug" placeholder="小写字母/数字，比如 chengnan" maxlength="31"></div>
+    <div class="fld"><label>分店账号（分店主用它登录看自己店的数据）</label><input class="inp" id="stUser" placeholder="给分店主起个登录名" maxlength="20"></div>
+    <div class="fld"><label>分店密码（你定，之后也能在这里改）</label><input class="inp" id="stPw" placeholder="至少 6 位" maxlength="64"></div>
+    <button class="btn press" id="stCreate" style="width:100%">创建分店</button>
+    <div class="small mt8">分店主登录后只能看到自己分店的顾客、订单和销售额，不能动商品、价格和别人的钱。</div></div>
+  <div class="panel glass"><h3>已有分店（${d.list.length}）</h3>
+    ${d.list.length ? d.list.map(s=>`<div class="rowitem">
+      <div class="flex"><b class="grow">${esc(s.name)}${s.status ? "" : ' <span class="st cancelled">已停用</span>'}</b><span class="small">${s.members} 位顾客 · ${s.orders} 单 · 销售额 ${fmt(s.revenue)}</span></div>
+      <div class="small mt8">分店链接：<span style="color:var(--accent)">${esc(link(s.slug))}</span> <button class="btn ghost sm press" data-copy="${esc(link(s.slug))}">复制链接</button></div>
+      <div class="small">分店账号：${esc(s.owner)} · 开店于 ${esc(s.time)}</div>
+      <div class="flex mt8"><button class="btn ghost sm press" data-storepw="${s.id}">改密码</button>
+      <button class="btn ghost sm press" data-storetoggle="${s.id}" data-on="${s.status}">${s.status ? "停用" : "启用"}</button>
+      <button class="btn ghost sm press" data-storedel="${s.id}" style="color:var(--bad)">删除</button></div></div>`).join("") : '<div class="empty">还没有分店</div>'}
+  </div>`;
+  $("#stCreate").addEventListener("click", async ()=>{
+    const body = {name: $("#stName").value.trim(), slug: $("#stSlug").value.trim(), username: $("#stUser").value.trim(), password: $("#stPw").value};
+    if(!body.name || !body.slug || !body.username || !body.password) return toast("四项都要填");
+    try{ await api("/api/admin/stores", {method:"POST", body}); toast("分店已创建，把链接发给分店主吧"); adminStoresView(); }catch(e){ toast(e.message); }
+  });
+  document.querySelectorAll("[data-copy]").forEach(b=>b.addEventListener("click", ()=>copyTxt(b.dataset.copy, b)));
+  document.querySelectorAll("[data-storepw]").forEach(b=>b.addEventListener("click", async ()=>{
+    const pw = prompt("给这个分店账号设新密码（至少 6 位）："); if(!pw) return;
+    try{ await api(`/api/admin/stores/${b.dataset.storepw}/password`, {method:"POST", body:{password: pw}}); toast("密码已改，分店主下次用新密码登录"); }catch(e){ toast(e.message); }
+  }));
+  document.querySelectorAll("[data-storetoggle]").forEach(b=>b.addEventListener("click", async ()=>{
+    const on = b.dataset.on === "1";
+    if(on && !confirm("停用后：分店链接不再接新顾客，分店账号也登录不了。确定停用？")) return;
+    try{ const cur = (await api("/api/admin/stores")).list.find(x=>x.id === Number(b.dataset.storetoggle));
+      await api(`/api/admin/stores/${b.dataset.storetoggle}`, {method:"PUT", body:{name: cur.name, slug: cur.slug, status: on ? 0 : 1}});
+      toast(on ? "已停用" : "已启用"); adminStoresView(); }catch(e){ toast(e.message); }
+  }));
+  document.querySelectorAll("[data-storedel]").forEach(b=>b.addEventListener("click", async ()=>{
+    if(!confirm("删除分店？分店账号会一并删除；名下顾客会转回总店（账号和余额不受影响），历史订单不再计入任何分店。")) return;
+    try{ await api(`/api/admin/stores/${b.dataset.storedel}`, {method:"DELETE"}); toast("已删除"); adminStoresView(); }catch(e){ toast(e.message); }
+  }));
+}
+/* ===== 分店主：我的分店 ===== */
+async function storeHomeView(){
+  if(!(me && me.is_store)) return;
+  if(me.store) $("#storeSub").textContent = me.store.name + " · 你的分店链接：" + location.origin + "/?store=" + me.store.slug;
+  const [s, u, o] = await Promise.all([api("/api/store/stats"), api("/api/store/users"), api("/api/store/orders")]);
+  const cards = [["今日销售额", fmt(s.today_revenue)], ["本月销售额", fmt(s.month_revenue)], ["累计销售额", fmt(s.total_revenue)],
+    ["分店顾客", s.members], ["订单数", s.orders], ["待发货", s.pending_orders]];
+  $("#storeBody").innerHTML = `
+    <div class="stats">${cards.map(([k,v])=>`<div class="stat glass"><div class="k">${k}</div><div class="v num">${v}</div></div>`).join("")}</div>
+    <div class="panel glass"><h3>分店订单（最近 100）</h3>
+      ${o.list.length ? o.list.map(x=>`<div class="rowitem"><div class="flex"><span class="grow">${esc(x.product_name)} ×${x.quantity}</span><b class="num">${fmt(x.total_price)}</b><span class="st ${x.status}">${x.status === "done" ? "已完成" : x.status === "pending" ? "待发货" : "已取消"}</span></div>
+      <div class="small">${esc(x.order_no)} · 买家 ${esc(x.buyer)} · ${esc(x.time)}</div></div>`).join("") : '<div class="empty">还没有订单，把你的分店链接发出去吧</div>'}</div>
+    <div class="panel glass"><h3>分店顾客（${u.list.length}）</h3>
+      ${u.list.length ? u.list.map(x=>`<div class="rowitem flex"><span class="grow">${esc(x.username)} <span class="small">ID ${x.id}</span></span><span class="small">余额 ${fmt(x.balance)} · ${esc(x.time)} 注册</span></div>`).join("") : '<div class="empty">还没有顾客通过你的链接注册</div>'}</div>`;
 }
 function catOptions(sel){
   return `<option value="">未分类</option>` + adminCats.map(c=>`<option value="${c.id}" ${String(c.id)===String(sel)?"selected":""}>${esc(c.name)}</option>`).join("");
@@ -1243,7 +1325,7 @@ async function adminLogsView(){
       <div class="small">${esc(l.actor)} · ${esc(l.time)}</div></div>`).join("") : '<div class="empty">暂无日志</div>'}</div>`;
 }
 
-refreshMe().then(loadShop);
+refreshMe().then(()=>{ loadShop(); showStoreName(); });
 </script>
 </body>
 </html>

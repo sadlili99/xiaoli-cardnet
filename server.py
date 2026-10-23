@@ -105,7 +105,20 @@ def init_db():
       sender TEXT NOT NULL, type TEXT NOT NULL DEFAULT 'text', content TEXT NOT NULL,
       seen_admin INTEGER NOT NULL DEFAULT 0, seen_user INTEGER NOT NULL DEFAULT 1,
       created_at INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS stores(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, slug TEXT UNIQUE NOT NULL,
+      owner_id INTEGER, status INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL);
     """)
+    # 分店归属字段（老库自动补列，数据保留）
+    ucols = [r["name"] for r in con.execute("PRAGMA table_info(users)")]
+    if "store_id" not in ucols:
+        con.execute("ALTER TABLE users ADD COLUMN store_id INTEGER")
+    if "is_store" not in ucols:
+        con.execute("ALTER TABLE users ADD COLUMN is_store INTEGER NOT NULL DEFAULT 0")
+    ocols = [r["name"] for r in con.execute("PRAGMA table_info(orders)")]
+    if "store_id" not in ocols:
+        con.execute("ALTER TABLE orders ADD COLUMN store_id INTEGER")
+    con.commit()
     if not con.execute("SELECT 1 FROM users WHERE username='xueli'").fetchone():
         old = con.execute("SELECT id FROM users WHERE username='admin'").fetchone()
         if old:
@@ -361,7 +374,7 @@ class Handler(BaseHTTPRequestHandler):
         s = con.execute("SELECT * FROM sessions WHERE token=?", (token,)).fetchone()
         if not s or s["expires_at"] < now():
             return None
-        u = con.execute("SELECT id,username,balance,is_admin,status,created_at FROM users WHERE id=?", (s["user_id"],)).fetchone()
+        u = con.execute("SELECT id,username,balance,is_admin,is_store,store_id,status,created_at FROM users WHERE id=?", (s["user_id"],)).fetchone()
         return u if u and u["status"] == 1 else None
 
     def need_login(self, con):
@@ -375,6 +388,15 @@ class Handler(BaseHTTPRequestHandler):
         if not u["is_admin"]:
             raise ApiError("需要管理员权限", 403)
         return u
+
+    def user_payload(self, con, u):
+        d = dict(id=u["id"], username=u["username"], balance=u["balance"],
+                 is_admin=bool(u["is_admin"]), is_store=bool(u["is_store"] or 0))
+        if u["is_store"] and u["store_id"]:
+            st = con.execute("SELECT id,name,slug FROM stores WHERE id=?", (u["store_id"],)).fetchone()
+            if st:
+                d["store"] = dict(id=st["id"], name=st["name"], slug=st["slug"])
+        return d
 
     # ---------- routing ----------
     def do_GET(self):
@@ -496,6 +518,14 @@ class Handler(BaseHTTPRequestHandler):
                                            quantity=o["quantity"], total_price=o["total_price"], status=o["status"],
                                            time=fmt_time(o["created_at"]), cards=cards)))
 
+        # ---------- 分店门面（公开：进店链接显示分店名） ----------
+        if p == "/api/storefront" and m == "GET":
+            slug = str(self.body().get("slug") or "").strip()
+            st = con.execute("SELECT name,slug FROM stores WHERE slug=? AND status=1", (slug,)).fetchone()
+            if not st:
+                raise ApiError("分店不存在或已停用", 404)
+            return self.ok(dict(store=dict(name=st["name"], slug=st["slug"])))
+
         # ---------- 注册 / 登录 ----------
         if p == "/api/register" and m == "POST":
             b = self.body()
@@ -506,9 +536,15 @@ class Handler(BaseHTTPRequestHandler):
                 raise ApiError("密码长度需 6-64 位")
             if con.execute("SELECT 1 FROM users WHERE username=?", (username,)).fetchone():
                 raise ApiError("用户名已被注册")
+            store_id = None
+            slug = str(b.get("store_slug") or "").strip()
+            if slug:
+                st = con.execute("SELECT id FROM stores WHERE slug=? AND status=1", (slug,)).fetchone()
+                if st:
+                    store_id = st["id"]
             with LOCK:
-                con.execute("INSERT INTO users(username,pass_hash,balance,is_admin,status,created_at) VALUES(?,?,0,0,1,?)",
-                            (username, hash_pass(password), now()))
+                con.execute("INSERT INTO users(username,pass_hash,balance,is_admin,status,created_at,store_id) VALUES(?,?,0,0,1,?,?)",
+                            (username, hash_pass(password), now(), store_id))
                 con.commit()
             return self.ok(dict(msg="注册成功，请登录"))
         if p == "/api/login" and m == "POST":
@@ -522,12 +558,42 @@ class Handler(BaseHTTPRequestHandler):
                 con.commit()
             self.extra_headers = {"Set-Cookie": self.session_cookie(token)}
             # 令牌只走 HttpOnly Cookie 下发，响应体里不再出现 token（抓包也拿不到）
-            return self.ok(dict(user=dict(id=u["id"], username=u["username"], balance=u["balance"], is_admin=bool(u["is_admin"]))))
+            return self.ok(dict(user=self.user_payload(con, u)))
 
         # ---------- 以下需登录 ----------
         me = self.need_login(con)
         if p == "/api/me" and m == "GET":
-            return self.ok(dict(user=dict(id=me["id"], username=me["username"], balance=me["balance"], is_admin=bool(me["is_admin"]))))
+            return self.ok(dict(user=self.user_payload(con, me)))
+
+        # ---------- 分店主接口（只看自己分店） ----------
+        if p.startswith("/api/store/"):
+            if not (me["is_store"] and me["store_id"]):
+                raise ApiError("需要分店账号", 403)
+            sid = me["store_id"]
+            SOLD = "status IN ('done','pending')"
+            if p == "/api/store/stats" and m == "GET":
+                t = now()
+                lt = time.localtime(t)
+                day0 = int(time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, -1)))
+                mon0 = int(time.mktime((lt.tm_year, lt.tm_mon, 1, 0, 0, 0, 0, 0, -1)))
+                q = lambda sql, a=(): con.execute(sql, a).fetchone()["v"]
+                return self.ok(dict(
+                    members=q("SELECT COUNT(*) v FROM users WHERE store_id=? AND is_store=0", (sid,)),
+                    orders=q("SELECT COUNT(*) v FROM orders WHERE store_id=? AND " + SOLD, (sid,)),
+                    pending_orders=q("SELECT COUNT(*) v FROM orders WHERE store_id=? AND status='pending'", (sid,)),
+                    today_revenue=q("SELECT COALESCE(SUM(total_price),0) v FROM orders WHERE store_id=? AND " + SOLD + " AND created_at>=?", (sid, day0)),
+                    month_revenue=q("SELECT COALESCE(SUM(total_price),0) v FROM orders WHERE store_id=? AND " + SOLD + " AND created_at>=?", (sid, mon0)),
+                    total_revenue=q("SELECT COALESCE(SUM(total_price),0) v FROM orders WHERE store_id=? AND " + SOLD, (sid,))))
+            if p == "/api/store/users" and m == "GET":
+                rows = con.execute("SELECT id,username,balance,created_at FROM users WHERE store_id=? AND is_store=0 ORDER BY id DESC LIMIT 200", (sid,)).fetchall()
+                return self.ok(dict(list=[dict(id=r["id"], username=r["username"], balance=r["balance"], time=fmt_time(r["created_at"])) for r in rows]))
+            if p == "/api/store/orders" and m == "GET":
+                rows = con.execute("""SELECT o.order_no,o.product_name,o.quantity,o.total_price,o.status,o.created_at,u.username
+                                      FROM orders o JOIN users u ON u.id=o.user_id WHERE o.store_id=? ORDER BY o.id DESC LIMIT 100""", (sid,)).fetchall()
+                return self.ok(dict(list=[dict(order_no=r["order_no"], product_name=r["product_name"], quantity=r["quantity"],
+                                               total_price=r["total_price"], status=r["status"], buyer=r["username"],
+                                               time=fmt_time(r["created_at"])) for r in rows]))
+            raise ApiError("接口不存在", 404)
         if p == "/api/logout" and m == "POST":
             token = (self.headers.get("Authorization") or "").split(" ")[-1]
             if not re.fullmatch(r"[0-9a-f]{64}", token or ""):
@@ -574,8 +640,8 @@ class Handler(BaseHTTPRequestHandler):
                                            (pid, qty)).fetchall()
                         if len(rows) < qty:
                             raise ApiError("库存不足（仅剩 %d 件）" % len(rows))
-                        cur = con.execute("INSERT INTO orders(order_no,user_id,product_id,product_name,unit_price,quantity,total_price,status,created_at) VALUES(?,?,?,?,?,?,?,'done',?)",
-                                          (order_no, me["id"], pid, pr["name"], pr["price"], qty, total, t))
+                        cur = con.execute("INSERT INTO orders(order_no,user_id,product_id,product_name,unit_price,quantity,total_price,status,created_at,store_id) VALUES(?,?,?,?,?,?,?,'done',?,?)",
+                                          (order_no, me["id"], pid, pr["name"], pr["price"], qty, total, t, me["store_id"]))
                         oid = cur.lastrowid
                         nb = money(bal - total)
                         con.execute("UPDATE users SET balance=? WHERE id=?", (nb, me["id"]))
@@ -586,8 +652,8 @@ class Handler(BaseHTTPRequestHandler):
                         op_log(con, me["username"], "发卡", "%s %s x%d" % (order_no, pr["name"], qty))
                         con.commit()
                         return self.ok(dict(order_no=order_no, cards=[r["code"] for r in rows], balance=nb))
-                    cur = con.execute("INSERT INTO orders(order_no,user_id,product_id,product_name,unit_price,quantity,total_price,status,created_at) VALUES(?,?,?,?,?,?,?,'pending',?)",
-                                      (order_no, me["id"], pid, pr["name"], pr["price"], qty, total, t))
+                    cur = con.execute("INSERT INTO orders(order_no,user_id,product_id,product_name,unit_price,quantity,total_price,status,created_at,store_id) VALUES(?,?,?,?,?,?,?,'pending',?,?)",
+                                      (order_no, me["id"], pid, pr["name"], pr["price"], qty, total, t, me["store_id"]))
                     nb = money(bal - total)
                     con.execute("UPDATE users SET balance=? WHERE id=?", (nb, me["id"]))
                     con.execute("INSERT INTO wallet_logs(user_id,amount,balance_after,reason,created_at) VALUES(?,?,?,?,?)",
@@ -813,6 +879,96 @@ class Handler(BaseHTTPRequestHandler):
             with LOCK:
                 con.execute("UPDATE products SET category_id=NULL WHERE category_id=?", (int(cd.group(1)),))
                 con.execute("DELETE FROM categories WHERE id=?", (int(cd.group(1)),)); con.commit()
+            return self.ok()
+
+        # ---------- 分店管理（总管理员） ----------
+        if p == "/api/admin/stores" and m == "GET":
+            rows = con.execute("""
+                SELECT s.id,s.name,s.slug,s.status,s.created_at, u.username AS owner_name,
+                  (SELECT COUNT(*) FROM users mu WHERE mu.store_id=s.id AND mu.is_store=0) AS members,
+                  (SELECT COUNT(*) FROM orders o WHERE o.store_id=s.id AND o.status IN ('done','pending')) AS order_count,
+                  (SELECT COALESCE(SUM(o.total_price),0) FROM orders o WHERE o.store_id=s.id AND o.status IN ('done','pending')) AS revenue
+                FROM stores s LEFT JOIN users u ON u.id=s.owner_id ORDER BY s.id""").fetchall()
+            return self.ok(dict(list=[dict(id=r["id"], name=r["name"], slug=r["slug"], status=r["status"],
+                                           owner=r["owner_name"] or "", members=r["members"],
+                                           orders=r["order_count"], revenue=r["revenue"],
+                                           time=fmt_time(r["created_at"])) for r in rows]))
+        if p == "/api/admin/stores" and m == "POST":
+            b = self.body()
+            name = str(b.get("name") or "").strip()
+            slug = str(b.get("slug") or "").strip().lower()
+            uname = str(b.get("username") or "").strip()
+            pw = str(b.get("password") or "")
+            if not name:
+                raise ApiError("分店名不能为空")
+            if not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,30}", slug):
+                raise ApiError("链接后缀需为 2-31 位小写字母/数字/连字符")
+            if con.execute("SELECT 1 FROM stores WHERE slug=?", (slug,)).fetchone():
+                raise ApiError("这个链接后缀已被占用")
+            if not re.match(r"^[A-Za-z0-9_一-龥]{2,20}$", uname):
+                raise ApiError("分店账号需为 2-20 位字母/数字/中文/下划线")
+            if con.execute("SELECT 1 FROM users WHERE username=?", (uname,)).fetchone():
+                raise ApiError("分店账号已被占用（和已有用户名撞了）")
+            if not (6 <= len(pw) <= 64):
+                raise ApiError("分店密码长度需 6-64 位")
+            with LOCK:
+                cur = con.execute("INSERT INTO stores(name,slug,status,created_at) VALUES(?,?,1,?)", (name[:30], slug, now()))
+                sid2 = cur.lastrowid
+                cur = con.execute("INSERT INTO users(username,pass_hash,balance,is_admin,is_store,store_id,status,created_at) VALUES(?,?,0,0,1,?,1,?)",
+                                  (uname, hash_pass(pw), sid2, now()))
+                con.execute("UPDATE stores SET owner_id=? WHERE id=?", (cur.lastrowid, sid2))
+                con.commit()
+            op_log(con, me["username"], "建分店", "%s（%s，账号 %s）" % (name, slug, uname))
+            return self.ok(dict(id=sid2))
+        sd = re.match(r"^/api/admin/stores/(\d+)$", p)
+        if sd and m == "PUT":
+            b = self.body(); sid2 = int(sd.group(1))
+            st = con.execute("SELECT * FROM stores WHERE id=?", (sid2,)).fetchone()
+            if not st:
+                raise ApiError("分店不存在", 404)
+            name = str(b.get("name") or st["name"]).strip() or st["name"]
+            slug = str(b.get("slug") or st["slug"]).strip().lower()
+            if not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,30}", slug):
+                raise ApiError("链接后缀需为 2-31 位小写字母/数字/连字符")
+            dup = con.execute("SELECT 1 FROM stores WHERE slug=? AND id<>?", (slug, sid2)).fetchone()
+            if dup:
+                raise ApiError("这个链接后缀已被占用")
+            status = int(b.get("status", st["status"]))
+            with LOCK:
+                con.execute("UPDATE stores SET name=?, slug=?, status=? WHERE id=?", (name[:30], slug, status, sid2))
+                con.execute("UPDATE users SET status=? WHERE id=?", (status, st["owner_id"]))
+                if status == 0:
+                    con.execute("DELETE FROM sessions WHERE user_id=?", (st["owner_id"],))
+                con.commit()
+            op_log(con, me["username"], "改分店", "%s（%s，状态 %d）" % (name, slug, status))
+            return self.ok()
+        if sd and m == "DELETE":
+            st = con.execute("SELECT * FROM stores WHERE id=?", (int(sd.group(1)),)).fetchone()
+            if not st:
+                raise ApiError("分店不存在", 404)
+            with LOCK:
+                con.execute("UPDATE users SET store_id=NULL WHERE store_id=? AND is_store=0", (st["id"],))
+                con.execute("UPDATE orders SET store_id=NULL WHERE store_id=?", (st["id"],))
+                if st["owner_id"]:
+                    con.execute("DELETE FROM sessions WHERE user_id=?", (st["owner_id"],))
+                    con.execute("DELETE FROM users WHERE id=?", (st["owner_id"],))
+                con.execute("DELETE FROM stores WHERE id=?", (st["id"],))
+                con.commit()
+            op_log(con, me["username"], "删分店", "%s（%s）" % (st["name"], st["slug"]))
+            return self.ok()
+        sp = re.match(r"^/api/admin/stores/(\d+)/password$", p)
+        if sp and m == "POST":
+            st = con.execute("SELECT * FROM stores WHERE id=?", (int(sp.group(1)),)).fetchone()
+            if not st or not st["owner_id"]:
+                raise ApiError("分店不存在", 404)
+            pw = str(self.body().get("password") or "")
+            if not (6 <= len(pw) <= 64):
+                raise ApiError("密码长度需 6-64 位")
+            with LOCK:
+                con.execute("UPDATE users SET pass_hash=? WHERE id=?", (hash_pass(pw), st["owner_id"]))
+                con.execute("DELETE FROM sessions WHERE user_id=?", (st["owner_id"],))
+                con.commit()
+            op_log(con, me["username"], "分店改密", st["name"])
             return self.ok()
         if p == "/api/admin/products" and m == "GET":
             out = []
