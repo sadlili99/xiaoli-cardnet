@@ -1141,14 +1141,18 @@ async function adminCatsView(){
   $("#adminBody").innerHTML = `<div class="panel glass">
     <h3>分类</h3>
     <div class="flex"><input class="inp grow" id="ncName" placeholder="新分类名"><input class="inp num" id="ncSort" type="number" placeholder="排序" style="width:90px"><button class="btn press" id="ncAdd">添加</button></div>
-    <div class="mt8">${adminCats.map(x=>`<div class="rowitem flex"><span class="grow">${esc(x.name)}</span><button class="btn danger sm press" data-cdel2="${x.id}">删除</button></div>`).join("")}</div>
+    <div class="mt8">${adminCats.map(x=>`<div class="rowitem flex"><span class="grow">${esc(x.name)}</span><span class="small mut">排序 ${x.sort}</span><button class="btn ghost sm press" data-cedit="${x.id}">编辑</button><button class="btn danger sm press" data-cdel2="${x.id}">删除</button></div><div class="rowitem flex" id="cedit-${x.id}" style="display:none"><input class="inp grow" id="ceName-${x.id}" value="${esc(x.name)}"><input class="inp num" id="ceSort-${x.id}" type="number" value="${x.sort}" style="width:90px" placeholder="排序"><button class="btn sm press" data-csave="${x.id}">保存</button><button class="btn ghost sm press" data-ccancel="${x.id}">取消</button></div>`).join("")}</div>
     <h3 class="mt14">公告</h3>
     <div class="flex"><input class="inp grow" id="naText" placeholder="新公告内容，短句就行"><button class="btn press" id="naAdd">发布</button></div>
     <div class="mt8">${n.list.map(x=>`<div class="rowitem flex"><span class="grow mut">${esc(x.content)}</span><button class="btn danger sm press" data-adel="${x.id}">删除</button></div>`).join("")}</div>
   </div>`;
   $("#ncAdd").addEventListener("click", async ()=>{ try{ await api("/api/admin/categories",{method:"POST",body:{name:$("#ncName").value, sort:Number($("#ncSort").value||0)}}); loadAdmin(); }catch(e){ toast(e.message); } });
   $("#naAdd").addEventListener("click", async ()=>{ try{ await api("/api/admin/announcements",{method:"POST",body:{content:$("#naText").value}}); loadAdmin(); }catch(e){ toast(e.message); } });
-  document.querySelectorAll("[data-cdel2]").forEach(b=>b.addEventListener("click", async ()=>{ if(!confirm("删除这个分类？")) return; try{ await api("/api/admin/categories/"+b.dataset.cdel2,{method:"DELETE"}); loadAdmin(); }catch(e){ toast(e.message); } }));
+  document.querySelectorAll("[data-cedit]").forEach(b=>b.addEventListener("click", ()=>{ const box = $("#cedit-"+b.dataset.cedit); box.style.display = box.style.display==="none" ? "" : "none"; }));
+  document.querySelectorAll("[data-ccancel]").forEach(b=>b.addEventListener("click", ()=>{ $("#cedit-"+b.dataset.ccancel).style.display = "none"; }));
+  document.querySelectorAll("[data-csave]").forEach(b=>b.addEventListener("click", async ()=>{ const id = b.dataset.csave;
+    try{ await api("/api/admin/categories/"+id,{method:"PUT",body:{name:$("#ceName-"+id).value, sort:Number($("#ceSort-"+id).value||0)}}); toast("已保存"); loadAdmin(); }catch(e){ toast(e.message); } }));
+  document.querySelectorAll("[data-cdel2]").forEach(b=>b.addEventListener("click", async ()=>{ if(!confirm("删除这个分类？分类下的商品不会被删，会变成「未分类」。")) return; try{ await api("/api/admin/categories/"+b.dataset.cdel2,{method:"DELETE"}); loadAdmin(); }catch(e){ toast(e.message); } }));
   document.querySelectorAll("[data-adel]").forEach(b=>b.addEventListener("click", async ()=>{ try{ await api("/api/admin/announcements/"+b.dataset.adel,{method:"DELETE"}); loadAdmin(); }catch(e){ toast(e.message); } }));
 }
 async function adminLogsView(){

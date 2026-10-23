@@ -785,8 +785,19 @@ class Handler(BaseHTTPRequestHandler):
                 con.execute("INSERT INTO categories(name,sort) VALUES(?,?)", (name[:30], int(b.get("sort") or 0))); con.commit()
             return self.ok()
         cd = re.match(r"^/api/admin/categories/(\d+)$", p)
+        if cd and m == "PUT":
+            b = self.body(); cid = int(cd.group(1)); name = str(b.get("name") or "").strip()
+            if not name:
+                raise ApiError("分类名不能为空")
+            if not con.execute("SELECT id FROM categories WHERE id=?", (cid,)).fetchone():
+                raise ApiError("分类不存在", 404)
+            with LOCK:
+                con.execute("UPDATE categories SET name=?, sort=? WHERE id=?",
+                            (name[:30], int(b.get("sort") or 0), cid)); con.commit()
+            return self.ok()
         if cd and m == "DELETE":
             with LOCK:
+                con.execute("UPDATE products SET category_id=NULL WHERE category_id=?", (int(cd.group(1)),))
                 con.execute("DELETE FROM categories WHERE id=?", (int(cd.group(1)),)); con.commit()
             return self.ok()
         if p == "/api/admin/products" and m == "GET":
