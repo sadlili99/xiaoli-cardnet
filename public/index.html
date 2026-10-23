@@ -338,6 +338,9 @@ body.chatopen #mainTabs{display:none}
   <button class="tab press" data-view="orders">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2.5"/><path d="M8.5 8h7M8.5 12h7M8.5 16h4"/></svg>
     <span class="tb-label">订单</span></button>
+  <button class="tab press" data-view="uservice" id="userServiceTab" style="display:none">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.5 8.5 0 01-8.5 8.5c-1.2 0-2.4-.25-3.4-.7L3 20l.8-3.9A8.5 8.5 0 1121 11.5z"/><path d="M8.5 10.5h7M8.5 13.5h4"/></svg>
+    <span class="tb-label">客服<span id="chatTabBadge"></span></span></button>
   <button class="tab press" data-view="wallet">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="3"/><path d="M3 10.5h18M16.5 15h.01"/></svg>
     <span class="tb-label">钱包</span></button>
@@ -626,12 +629,14 @@ function renderAuth(){
       token=""; me=null; localStorage.removeItem("lk_token"); renderAuth(); toast("已退出"); switchView("shop"); });
     $("#adminTab").style.display = me.is_admin ? "" : "none";
     $("#serviceTab").style.display = me.is_admin ? "" : "none";
+    $("#userServiceTab").style.display = me.is_admin ? "none" : "";
     const cb = $("#chatBtn"); if(cb){ cb.style.display = me.is_admin ? "none" : ""; if(!me.is_admin) checkUnread(); }
   } else {
     a.innerHTML = `<button class="chipbtn solid press" id="loginBtn">登录</button>`;
     $("#loginBtn").addEventListener("click", ()=>openMask("authMask"));
     $("#adminTab").style.display = "none";
     $("#serviceTab").style.display = "none";
+    $("#userServiceTab").style.display = "none";
     const cb = $("#chatBtn"); if(cb) cb.style.display = "none";
   }
 }
@@ -674,6 +679,7 @@ function switchView(v){
   window.scrollTo({top:0, behavior:"smooth"});
 }
 document.querySelectorAll("#mainTabs .tab").forEach(t=>t.addEventListener("click", ()=>{
+  if(t.dataset.view==="uservice"){ if(!needLogin()) return; if(me && me.is_admin) return switchView("service"); return openChat(); }
   if((t.dataset.view==="orders"||t.dataset.view==="wallet") && !needLogin()) return;
   if((t.dataset.view==="admin"||t.dataset.view==="service") && !(me&&me.is_admin)) return toast("需要管理员账号");
   switchView(t.dataset.view);
@@ -847,6 +853,8 @@ async function checkUnread(){
     const d = await api("/api/messages/unread");
     const dot = $("#chatDot");
     if(dot){ if(d.unread > 0){ dot.style.display = ""; dot.textContent = d.unread > 99 ? "99+" : d.unread; } else dot.style.display = "none"; }
+    const tb = $("#chatTabBadge");
+    if(tb){ tb.innerHTML = d.unread > 0 ? `<span class="unreaddot">${d.unread > 99 ? "99+" : d.unread}</span>` : ""; }
   }catch(e){}
 }
 async function loadChatThread(){
@@ -858,6 +866,7 @@ async function loadChatThread(){
     box.innerHTML = d.list.length ? d.list.map(m => bubbleHtml(m, "user")).join("") : '<div class="empty">暂无消息，先和管理员打个招呼吧</div>';
     box.scrollTop = box.scrollHeight;
     const dot = $("#chatDot"); if(dot) dot.style.display = "none";
+    const tb = $("#chatTabBadge"); if(tb) tb.innerHTML = "";
   }catch(e){}
 }
 function openChat(){
