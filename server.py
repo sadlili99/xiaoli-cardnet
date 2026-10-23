@@ -434,7 +434,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_response(404); self.end_headers(); self.wfile.write(b"Not found"); return
         mime = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
                 ".js": "application/javascript; charset=utf-8", ".png": "image/png",
-                ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".ico": "image/x-icon"}
+                ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
+                ".webp": "image/webp", ".svg": "image/svg+xml", ".ico": "image/x-icon"}
         data = open(fp, "rb").read()
         self.send_response(200)
         self.send_header("Content-Type", mime.get(os.path.splitext(fp)[1], "application/octet-stream"))
@@ -655,6 +656,32 @@ class Handler(BaseHTTPRequestHandler):
 
         # ---------- 管理后台 ----------
         admin = self.need_admin(con)
+        if p == "/api/admin/upload" and m == "POST":
+            b = self.body()
+            try:
+                blob = base64.b64decode(str(b.get("data") or ""), validate=True)
+            except Exception:
+                raise ApiError("图片数据无效")
+            if not blob or len(blob) > 4 * 1024 * 1024:
+                raise ApiError("图片大小需在 4MB 以内")
+            if blob[:3] == b"\xff\xd8\xff":
+                ext = "jpg"
+            elif blob[:8] == b"\x89PNG\r\n\x1a\n":
+                ext = "png"
+            elif blob[:4] == b"GIF8":
+                ext = "gif"
+            elif blob[:4] == b"RIFF" and blob[8:12] == b"WEBP":
+                ext = "webp"
+            else:
+                raise ApiError("仅支持 JPG / PNG / GIF / WebP 图片")
+            updir = os.path.join(PUBLIC, "uploads")
+            os.makedirs(updir, exist_ok=True)
+            fname = "%d-%s.%s" % (now(), secrets.token_hex(8), ext)
+            with open(os.path.join(updir, fname), "wb") as f:
+                f.write(blob)
+            op_log(con, admin["username"], "上传图片", fname)
+            con.commit()
+            return self.ok(dict(url="/uploads/" + fname))
         if p == "/api/admin/conversations" and m == "GET":
             rows = con.execute("""SELECT u.id, u.username,
                 (SELECT content FROM messages WHERE user_id=u.id ORDER BY id DESC LIMIT 1) last_content,

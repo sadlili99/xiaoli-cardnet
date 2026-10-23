@@ -670,7 +670,7 @@ async function loadShop(){
       const sold = p.stock_mode==="auto" && p.stock<=0;
       const badge = p.stock_mode==="manual" ? '<span class="badge man">人工发货</span>'
         : sold ? '<span class="badge out">售罄</span>' : `<span class="badge ok">有货 · 剩 ${p.stock}</span>`;
-      const cover = p.cover && /^https?:/.test(p.cover)
+      const cover = p.cover && /^(https?:|\/)/.test(p.cover)
         ? `<img src="${esc(p.cover)}" alt="">` : `<span class="big">${esc((p.name||"卡").trim().slice(0,1))}</span>`;
       return `<article class="card glass">
         <div class="cover">${cover}<span class="ct">${esc(p.category_name||"未分类")}</span></div>
@@ -952,6 +952,40 @@ async function sendAdminChat(){
   catch(e){ toast(e.message); }
 }
 
+function bindCoverUpload(fileId, hiddenId, prevId, stateId, clearId){
+  const fi = document.getElementById(fileId); if(!fi) return;
+  fi.addEventListener("change", async ()=>{
+    const f = fi.files && fi.files[0]; fi.value = ""; if(!f) return;
+    if(f.size > 4*1024*1024){ toast("图片不能超过 4MB"); return; }
+    const st = document.getElementById(stateId); st.textContent = "上传中…";
+    try{
+      const b64 = await new Promise((res, rej)=>{ const r = new FileReader();
+        r.onload = ()=>res(String(r.result).split(",")[1]); r.onerror = rej; r.readAsDataURL(f); });
+      const d = await api("/api/admin/upload", {method:"POST", body:{data: b64}});
+      document.getElementById(hiddenId).value = d.url;
+      const pv = document.getElementById(prevId); pv.src = d.url; pv.style.display = "";
+      const cl = document.getElementById(clearId); if(cl) cl.style.display = "";
+      st.textContent = "已上传到服务器";
+    }catch(e){ st.textContent = "上传失败"; toast(e.message); }
+  });
+  const cl = document.getElementById(clearId);
+  if(cl) cl.addEventListener("click", ()=>{
+    document.getElementById(hiddenId).value = "";
+    const pv = document.getElementById(prevId); pv.removeAttribute("src"); pv.style.display = "none";
+    cl.style.display = "none"; document.getElementById(stateId).textContent = "未选择";
+  });
+}
+function coverUploadHTML(pfx, cur){
+  const has = !!cur;
+  return `<div class="flex wrap2" style="align-items:center">
+    <img id="${pfx}Prev" alt="" ${has?`src="${esc(cur)}"`:'src=""'} style="${has?"":"display:none;"}width:96px;height:64px;object-fit:cover;border-radius:10px;border:1px solid var(--line)">
+    <label class="btn ghost sm press" for="${pfx}File">选择图片</label>
+    <input type="file" id="${pfx}File" accept="image/*" style="display:none">
+    <span class="small" id="${pfx}UpState">${has?"当前封面":"未选择"}</span>
+    <button type="button" class="btn ghost sm press" id="${pfx}Clear" style="${has?"":"display:none"}">清除封面</button>
+  </div><input type="hidden" id="${pfx}Cover" value="${esc(cur||"")}">`;
+}
+
 async function adminProductsView(){
   const [p, c] = await Promise.all([api("/api/admin/products"), api("/api/admin/categories")]);
   adminProducts = p.list; adminCats = c.list;
@@ -963,8 +997,8 @@ async function adminProductsView(){
       <select class="inp" id="npCat" style="width:130px">${catOptions("")}</select>
       <select class="inp" id="npMode" style="width:120px"><option value="auto">自动发卡</option><option value="manual">人工发货</option></select>
     </div>
-    <label class="lb">封面图片（可自定义，粘贴图片链接；不填则用文字封面）</label>
-    <input class="inp" id="npCover" placeholder="https://… 图片 URL">
+    <label class="lb">封面图片（选图上传到服务器；不传则用文字封面）</label>
+    ${coverUploadHTML("np", "")}
     <textarea class="inp mt8" id="npDesc" placeholder="商品说明，写清兑换方式和注意事项"></textarea>
     <button class="btn press mt8" id="npAdd">上架商品</button>
     <div class="tblwrap mt14"><table class="tb"><thead><tr><th>商品</th><th>价格</th><th>库存/已售</th><th>状态</th><th>操作</th></tr></thead>
@@ -986,6 +1020,7 @@ async function adminProductsView(){
       toast("已上架"); loadAdmin();
     }catch(e){ toast(e.message); }
   });
+  bindCoverUpload("npFile", "npCover", "npPrev", "npUpState", "npClear");
   document.querySelectorAll("[data-toggle]").forEach(b=>b.addEventListener("click", async ()=>{
     const x = adminProducts.find(v=>v.id===Number(b.dataset.toggle)); if(!x) return;
     try{ await api("/api/admin/products/"+x.id,{method:"PUT",body:{...x, status: x.status?0:1}}); loadAdmin(); }catch(e){ toast(e.message); }
@@ -1005,10 +1040,11 @@ async function adminProductsView(){
         <select class="inp" id="epMode" style="width:120px"><option value="auto" ${x.stock_mode==="auto"?"selected":""}>自动发卡</option><option value="manual" ${x.stock_mode==="manual"?"selected":""}>人工发货</option></select>
         <input class="inp num" id="epSort" type="number" value="${x.sort}" style="width:90px" placeholder="排序">
       </div>
-      <label class="lb">封面图片（可自定义，粘贴图片链接）</label>
-      <input class="inp" id="epCover" value="${esc(x.cover||"")}" placeholder="https://… 图片 URL">
+      <label class="lb">封面图片（选图上传到服务器）</label>
+      ${coverUploadHTML("ep", x.cover||"")}
       <textarea class="inp mt8" id="epDesc">${esc(x.description||"")}</textarea>
       <button class="btn press mt8" id="epSave">保存</button></div>`;
+    bindCoverUpload("epFile", "epCover", "epPrev", "epUpState", "epClear");
     $("#epSave").addEventListener("click", async ()=>{
       try{ await api("/api/admin/products/"+x.id,{method:"PUT",body:{name:$("#epName").value, price:Number($("#epPrice").value||0),
         category_id:$("#epCat").value?Number($("#epCat").value):null, stock_mode:$("#epMode").value,
