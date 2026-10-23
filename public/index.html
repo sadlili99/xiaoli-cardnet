@@ -200,6 +200,19 @@ footer{padding:26px 0 8px;text-align:center;color:var(--ink3);font-size:12px;lin
 .msgtime{font-size:11px;color:var(--ink3);margin-top:3px;padding:0 4px}
 .chatbar{display:flex;gap:8px;margin-top:12px}
 .chatbar .inp{flex:1}
+/* 全屏聊天页（微信式）：盖住整个界面，消息区滚动，输入栏钉在底部 */
+.chatpage{position:fixed;inset:0;z-index:90;background:var(--bg);display:none;flex-direction:column}
+.chatpage.on{display:flex}
+.chathead{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bar);-webkit-backdrop-filter:blur(18px) saturate(1.5);backdrop-filter:blur(18px) saturate(1.5);border-bottom:1px solid var(--line)}
+.chathead .back{font-size:20px;line-height:1;padding:6px 10px;border-radius:10px;color:var(--ink)}
+.chatpage .chatlist{flex:1;max-height:none;min-height:0;padding:16px 12px 8px}
+.chatpage .chatbar{margin-top:0;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:var(--bar);-webkit-backdrop-filter:blur(18px) saturate(1.5);backdrop-filter:blur(18px) saturate(1.5);border-top:1px solid var(--line)}
+.chatpage .panel{flex:1;min-height:0;display:flex;flex-direction:column;margin:0;border-radius:0;border:none}
+#adminChatBox{display:flex;flex-direction:column;flex:1;min-height:0}
+body.chatopen #mainTabs{display:none}
+.stat.press{cursor:pointer}
+.barchart{width:100%;height:auto;display:block}
+.servicebadge{position:relative}
 .unreaddot{min-width:18px;height:18px;border-radius:9px;background:#ff3b30;color:#fff;font-size:11px;display:inline-flex;align-items:center;justify-content:center;padding:0 5px;margin-left:6px;vertical-align:2px}
 </style>
 </head>
@@ -294,18 +307,23 @@ footer{padding:26px 0 8px;text-align:center;color:var(--ink3);font-size:12px;lin
 
   <section class="view" id="view-admin">
     <div class="ptitle">商户端</div>
-    <div class="psub">管理员账号登录后进入这里：管商品、卡密、订单，也能修改用户余额</div>
-    <div class="stats" id="statBox"></div>
+    <div class="psub">管理员账号登录后进入这里：看经营数据，管商品、卡密、订单，也能修改用户余额</div>
     <div class="subtabs" id="adminTabs">
-      <button class="subtab on press" data-at="products">商品</button>
+      <button class="subtab on press" data-at="home">概览</button>
+      <button class="subtab press" data-at="products">商品</button>
       <button class="subtab press" data-at="cards">卡密库存</button>
       <button class="subtab press" data-at="orders">订单</button>
       <button class="subtab press" data-at="users">用户与余额</button>
-      <button class="subtab press" data-at="chats">客服消息<span id="chatBadge"></span></button>
       <button class="subtab press" data-at="cats">分类与公告</button>
       <button class="subtab press" data-at="logs">操作日志</button>
     </div>
     <div id="adminBody"></div>
+  </section>
+
+  <section class="view" id="view-service">
+    <div class="ptitle">客服</div>
+    <div class="psub">用户咨询和充值都在这里谈，点开会话就能回复、发收款码、加余额</div>
+    <div id="serviceBody"></div>
   </section>
 
   <footer>雪梨卡网系统 · 用户端与商户端同一套系统，管理员登录自动进入商户端<br>卡密请截图保存，充值与消费记录可在资金明细中核对</footer>
@@ -321,6 +339,9 @@ footer{padding:26px 0 8px;text-align:center;color:var(--ink3);font-size:12px;lin
   <button class="tab press" data-view="wallet">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="3"/><path d="M3 10.5h18M16.5 15h.01"/></svg>
     <span class="tb-label">钱包</span></button>
+  <button class="tab press" data-view="service" id="serviceTab" style="display:none">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.5 8.5 0 01-8.5 8.5c-1.2 0-2.4-.25-3.4-.7L3 20l.8-3.9A8.5 8.5 0 1121 11.5z"/><path d="M8.5 10.5h7M8.5 13.5h4"/></svg>
+    <span class="tb-label">客服<span id="chatBadge"></span></span></button>
   <button class="tab press" data-view="admin" id="adminTab" style="display:none">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2" transform="translate(-1 0)"/></svg>
     <span class="tb-label">商户端</span></button>
@@ -369,18 +390,20 @@ footer{padding:26px 0 8px;text-align:center;color:var(--ink3);font-size:12px;lin
   </div>
 </div>
 
-<div class="mask" id="chatMask">
-  <div class="sheet">
-    <div class="grab"></div>
-    <h3>联系管理员</h3>
-    <div class="small" style="text-align:center">充值直接说金额，管理员会发收款码给你；付款后把页面上的 ID 报给管理员，马上为你加余额</div>
-    <div class="chatlist" id="chatList"><div class="empty">暂无消息</div></div>
-    <div class="chatbar">
-      <input class="inp" id="chatInp" placeholder="输入消息，比如：我要充值 50" maxlength="1000">
-      <button class="btn press" id="chatSend">发送</button>
-    </div>
-    <button class="btn ghost press" data-close="chatMask" style="margin-top:10px">关闭</button>
+<div class="chatpage" id="chatPage">
+  <div class="chathead">
+    <button class="back press" id="chatBackBtn">‹</button>
+    <div class="grow"><b>管理员</b><div class="small">充值直接说金额，付款后报你的用户 ID，马上加余额</div></div>
   </div>
+  <div class="chatlist" id="chatList"><div class="empty">暂无消息</div></div>
+  <div class="chatbar">
+    <input class="inp" id="chatInp" placeholder="输入消息，比如：我要充值 50" maxlength="1000">
+    <button class="btn press" id="chatSend">发送</button>
+  </div>
+</div>
+
+<div class="chatpage" id="adminChatPage">
+  <div id="adminChatBox"></div>
 </div>
 
 <div class="mask" id="authMask">
@@ -409,7 +432,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const fmt = n => "¥" + Number(n||0).toFixed(2);
 let token = ""; // 登录态以 HttpOnly Cookie 为准，token 仅作接口兼容
-let me = null, curCat = "", curQ = "", buyItem = null, buyQty = 1, adminMode = "products",
+let me = null, curCat = "", curQ = "", buyItem = null, buyQty = 1, adminMode = "home",
     adminProducts = [], adminCats = [], cardPid = null, rechargeAmt = 50;
 
 /* ===== 外观：跟随系统自动深/浅色，可手动切换 ===== */
@@ -600,11 +623,13 @@ function renderAuth(){
     $("#logoutBtn").addEventListener("click", async ()=>{ try{ await api("/api/logout",{method:"POST"}); }catch(e){}
       token=""; me=null; localStorage.removeItem("lk_token"); renderAuth(); toast("已退出"); switchView("shop"); });
     $("#adminTab").style.display = me.is_admin ? "" : "none";
+    $("#serviceTab").style.display = me.is_admin ? "" : "none";
     const cb = $("#chatBtn"); if(cb){ cb.style.display = me.is_admin ? "none" : ""; if(!me.is_admin) checkUnread(); }
   } else {
     a.innerHTML = `<button class="chipbtn solid press" id="loginBtn">登录</button>`;
     $("#loginBtn").addEventListener("click", ()=>openMask("authMask"));
     $("#adminTab").style.display = "none";
+    $("#serviceTab").style.display = "none";
     const cb = $("#chatBtn"); if(cb) cb.style.display = "none";
   }
 }
@@ -637,16 +662,18 @@ function needLogin(){
 }
 
 function switchView(v){
+  if(v !== "service") stopAdminChatPoll();
   document.querySelectorAll("#mainTabs .tab").forEach(t=>t.classList.toggle("on", t.dataset.view===v));
   document.querySelectorAll(".view").forEach(s=>s.classList.toggle("on", s.id==="view-"+v));
   if(v==="orders") loadOrders();
   if(v==="wallet") loadWallet();
   if(v==="admin") loadAdmin();
+  if(v==="service") adminChatsView();
   window.scrollTo({top:0, behavior:"smooth"});
 }
 document.querySelectorAll("#mainTabs .tab").forEach(t=>t.addEventListener("click", ()=>{
   if((t.dataset.view==="orders"||t.dataset.view==="wallet") && !needLogin()) return;
-  if(t.dataset.view==="admin" && !(me&&me.is_admin)) return toast("需要管理员账号");
+  if((t.dataset.view==="admin"||t.dataset.view==="service") && !(me&&me.is_admin)) return toast("需要管理员账号");
   switchView(t.dataset.view);
 }));
 
@@ -834,11 +861,19 @@ async function loadChatThread(){
 function openChat(){
   if(!needLogin()) return;
   userChatCount = -1;
-  openMask("chatMask");
+  $("#chatPage").classList.add("on");
+  document.body.classList.add("chatopen");
   loadChatThread();
   clearInterval(chatTimer);
-  chatTimer = setInterval(()=>{ if($("#chatMask").classList.contains("on")) loadChatThread(); else clearInterval(chatTimer); }, 4000);
+  chatTimer = setInterval(()=>{ if($("#chatPage").classList.contains("on")) loadChatThread(); else clearInterval(chatTimer); }, 4000);
 }
+function closeChatPage(){
+  $("#chatPage").classList.remove("on");
+  document.body.classList.remove("chatopen");
+  clearInterval(chatTimer);
+  checkUnread();
+}
+$("#chatBackBtn").addEventListener("click", closeChatPage);
 async function sendChat(){
   const inp = $("#chatInp"); const v = inp.value.trim(); if(!v) return;
   inp.value = "";
@@ -866,23 +901,49 @@ document.querySelectorAll("#adminTabs .subtab").forEach(t=>t.addEventListener("c
 async function loadAdmin(){
   if(!(me&&me.is_admin)) return;
   try{
-    const s = await api("/api/admin/stats");
-    const cells = [["今日销售额",fmt(s.today_revenue)],["本月销售额",fmt(s.month_revenue)],["累计销售额",fmt(s.total_revenue)],
-      ["订单数",s.orders],["待发货",s.pending_orders],["商品数",s.products],["用户数",s.users]];
-    $("#statBox").innerHTML = cells.map(([k,v])=>`<div class="stat glass"><div class="k">${k}</div><div class="v num">${v}</div></div>`).join("")
-      + (s.low_stock.length ? `<div class="stat glass" style="grid-column:span 2"><div class="k">库存预警（&lt;5）</div>
-         <div class="small mt8" style="line-height:1.7">${s.low_stock.map(x=>`${esc(x.name)}：剩 ${x.stock}`).join("<br>")}</div></div>` : "")
-      + (s.top_products.length ? `<div class="stat glass" style="grid-column:span 2"><div class="k">热销商品</div>
-         <div class="small mt8" style="line-height:1.7">${s.top_products.map((x,i)=>`${i+1}. ${esc(x.name)} · 卖 ${x.qty} 件 · ${fmt(x.amount)}`).join("<br>")}</div></div>` : "");
-    try{ const cv = await api("/api/admin/conversations"); setChatBadge(cv.list.reduce((s,c)=>s+c.unread,0)); }catch(e){}
+    try{ const cv = await api("/api/admin/conversations"); setChatBadge(cv.list.reduce((s2,c)=>s2+c.unread,0)); }catch(e){}
+    if(adminMode==="home") return adminHomeView();
     if(adminMode==="products") return adminProductsView();
-    if(adminMode==="chats") return adminChatsView();
     if(adminMode==="cards") return adminCardsView();
     if(adminMode==="orders") return adminOrdersView("");
     if(adminMode==="users") return adminUsersView("");
     if(adminMode==="cats") return adminCatsView();
     if(adminMode==="logs") return adminLogsView();
   }catch(e){ toast(e.message); }
+}
+function goAdminSub(mode){
+  adminMode = mode;
+  document.querySelectorAll("#adminTabs .subtab").forEach(x=>x.classList.toggle("on", x.dataset.at===mode));
+  loadAdmin();
+}
+/* ===== 商户端：概览仪表盘 ===== */
+async function adminHomeView(){
+  const s = await api("/api/admin/stats");
+  const maxRev = Math.max(1, ...s.daily.map(d=>d.revenue));
+  const W = 560, H = 168, base = 138, bw = W / s.daily.length;
+  const bars = s.daily.map((d, i)=>{
+    const h = Math.max(d.revenue > 0 ? 4 : 1.5, d.revenue / maxRev * 112);
+    const x = i * bw + bw * 0.19, y = base - h, w = bw * 0.62;
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="3.5" fill="${d.revenue > 0 ? "var(--blue)" : "var(--line)"}"><title>${d.date} · 销售额 ${fmt(d.revenue)} · ${d.orders} 单</title></rect>
+    <text x="${(i * bw + bw / 2).toFixed(1)}" y="${base + 17}" font-size="9.5" fill="var(--ink3)" text-anchor="middle">${d.date.slice(3)}</text>`;
+  }).join("");
+  const cards = [
+    ["今日销售额", fmt(s.today_revenue), "orders"], ["今日订单", s.today_orders + " 单", "orders"],
+    ["本月销售额", fmt(s.month_revenue), "orders"], ["本月订单", s.month_orders + " 单", "orders"],
+    ["累计销售额", fmt(s.total_revenue), "orders"], ["待发货", s.pending_orders + " 单", "orders"],
+    ["用户数", s.users, "users"], ["在售商品", s.products, "products"], ["客服未读", s.unread_chats + " 条", "service"]];
+  $("#adminBody").innerHTML = `
+    <div class="stats" style="margin-top:2px">${cards.map(([k,v,go])=>`<div class="stat glass press" data-go="${go}"><div class="k">${k}</div><div class="v num">${v}</div><div class="small" style="color:var(--ink3)">点击查看 ›</div></div>`).join("")}</div>
+    <div class="panel glass"><h3>近 14 天销售额（点柱子看当天明细）</h3>
+      <svg class="barchart" viewBox="0 0 ${W} ${H}"><line x1="0" y1="${base}" x2="${W}" y2="${base}" stroke="var(--line)"/>${bars}</svg>
+      <div class="small">14 天合计 ${fmt(s.daily.reduce((a,d)=>a+d.revenue,0))} · ${s.daily.reduce((a,d)=>a+d.orders,0)} 单</div></div>
+    ${s.top_products.length ? `<div class="panel glass"><h3>热销商品</h3>${s.top_products.map((x,i)=>`<div class="rowitem flex"><span class="grow">${i+1}. ${esc(x.name)}</span><span class="small">卖 ${x.qty} 件 · ${fmt(x.amount)}</span></div>`).join("")}</div>` : ""}
+    ${s.low_stock.length ? `<div class="panel glass"><h3>库存预警（自动发卡 · 剩余 &lt;5）</h3>${s.low_stock.map(x=>`<div class="rowitem flex"><span class="grow">${esc(x.name)}</span><span class="st pending">剩 ${x.stock}</span></div>`).join("")}<button class="btn ghost sm press mt8" data-go="cards">去补卡密</button></div>` : ""}`;
+  document.querySelectorAll("[data-go]").forEach(el=>el.addEventListener("click", ()=>{
+    const go = el.dataset.go;
+    if(go === "service") return switchView("service");
+    goAdminSub(go);
+  }));
 }
 function catOptions(sel){
   return `<option value="">未分类</option>` + adminCats.map(c=>`<option value="${c.id}" ${String(c.id)===String(sel)?"selected":""}>${esc(c.name)}</option>`).join("");
@@ -898,19 +959,27 @@ async function adminChatsView(){
   stopAdminChatPoll();
   const d = await api("/api/admin/conversations");
   setChatBadge(d.list.reduce((s,c)=>s+c.unread,0));
-  $("#adminBody").innerHTML = `<div class="panel glass"><h3>客服消息（用户咨询、充值都在这里谈）</h3>
+  $("#serviceBody").innerHTML = `<div class="panel glass">
     ${d.list.length ? d.list.map(c=>`<div class="rowitem flex press" data-conv="${c.id}" style="cursor:pointer">
       <div class="grow"><div><b>${esc(c.username)}</b> <span class="small">ID ${c.id}</span>${c.unread ? `<span class="unreaddot">${c.unread}</span>` : ""}</div>
       <div class="small">${c.last_type === "image" ? "[收款码]" : esc((c.last_content || "").slice(0, 42))}</div></div>
       <div class="small">${esc(c.last_time || "")}</div></div>`).join("") : '<div class="empty">还没有用户发来消息</div>'}
-  </div><div id="adminChatBox"></div>`;
+  </div>`;
   document.querySelectorAll("[data-conv]").forEach(r=>r.addEventListener("click", ()=>openAdminThread(Number(r.dataset.conv))));
 }
 async function openAdminThread(uid){
   adminChatUid = uid; adminChatCount = -1;
+  $("#adminChatPage").classList.add("on");
+  document.body.classList.add("chatopen");
   await loadAdminThread();
   stopAdminChatPoll();
-  adminChatTimer = setInterval(()=>{ if(adminMode === "chats" && adminChatUid && $("#view-admin").classList.contains("on")) loadAdminThread(true); }, 4000);
+  adminChatTimer = setInterval(()=>{ if(adminChatUid && $("#adminChatPage").classList.contains("on")) loadAdminThread(true); }, 4000);
+}
+function closeAdminThread(){
+  stopAdminChatPoll(); adminChatUid = null;
+  $("#adminChatPage").classList.remove("on");
+  document.body.classList.remove("chatopen");
+  if($("#view-service").classList.contains("on")) adminChatsView();
 }
 async function loadAdminThread(poll){
   const box0 = $("#adminChatBox"); if(!box0 || !adminChatUid) return;
@@ -930,7 +999,7 @@ async function loadAdminThread(poll){
     <div class="chatbar"><input class="inp" id="adminChatInp" placeholder="回复用户" maxlength="1000"><button class="btn press" id="adminChatSend">发送</button></div>
   </div>`;
   const list = $("#adminChatList"); if(list) list.scrollTop = list.scrollHeight;
-  $("#chatBack").addEventListener("click", ()=>{ stopAdminChatPoll(); adminChatUid = null; adminChatsView(); });
+  $("#chatBack").addEventListener("click", closeAdminThread);
   $("#chatAdjust").addEventListener("click", async ()=>{
     const v = prompt(`给 ${d.peer.username}（ID ${d.peer.id}）修改余额：输入调整金额（正数加、负数减）：`); if(v === null) return;
     const amount = Number(v); if(!amount) return toast("金额不对");

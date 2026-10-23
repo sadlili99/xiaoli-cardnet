@@ -728,18 +728,32 @@ class Handler(BaseHTTPRequestHandler):
             day0 = int(time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, -1)))
             mon0 = int(time.mktime((lt.tm_year, lt.tm_mon, 1, 0, 0, 0, 0, 0, -1)))
             g = lambda sql, a=(): con.execute(sql, a).fetchone()["v"]
+            sold = "status IN ('done','pending')"  # 已付款的订单都算销售额（pending=待发货，钱已收）；cancelled 已退款不算
             top = [dict(name=r["product_name"], qty=r["qty"], amount=r["amount"]) for r in con.execute(
-                "SELECT product_name, SUM(quantity) qty, SUM(total_price) amount FROM orders WHERE status='done' GROUP BY product_name ORDER BY qty DESC LIMIT 5")]
+                "SELECT product_name, SUM(quantity) qty, SUM(total_price) amount FROM orders WHERE " + sold + " GROUP BY product_name ORDER BY qty DESC LIMIT 5")]
             low = [dict(id=r["id"], name=r["name"], stock=stock_of(con, r["id"])) for r in con.execute(
                 "SELECT id,name FROM products WHERE status=1 AND stock_mode='auto'")]
             low = [x for x in low if x["stock"] < 5][:10]
+            rows = con.execute(
+                "SELECT date(created_at,'unixepoch','localtime') d, COUNT(*) c, COALESCE(SUM(total_price),0) s "
+                "FROM orders WHERE " + sold + " AND created_at>=? GROUP BY d", (day0 - 13 * 86400,)).fetchall()
+            by_day = {r["d"]: (r["c"], r["s"]) for r in rows}
+            daily = []
+            for i in range(13, -1, -1):
+                t2 = time.localtime(day0 - i * 86400)
+                key = time.strftime("%Y-%m-%d", t2)
+                c, s = by_day.get(key, (0, 0))
+                daily.append(dict(date=time.strftime("%m-%d", t2), orders=c, revenue=s))
             return self.ok(dict(
                 users=g("SELECT COUNT(*) v FROM users"), products=g("SELECT COUNT(*) v FROM products WHERE status=1"),
-                orders=g("SELECT COUNT(*) v FROM orders"), pending_orders=g("SELECT COUNT(*) v FROM orders WHERE status='pending'"),
-                today_revenue=g("SELECT COALESCE(SUM(total_price),0) v FROM orders WHERE status='done' AND created_at>=?", (day0,)),
-                month_revenue=g("SELECT COALESCE(SUM(total_price),0) v FROM orders WHERE status='done' AND created_at>=?", (mon0,)),
-                total_revenue=g("SELECT COALESCE(SUM(total_price),0) v FROM orders WHERE status='done'"),
-                top_products=top, low_stock=low))
+                orders=g("SELECT COUNT(*) v FROM orders WHERE " + sold), pending_orders=g("SELECT COUNT(*) v FROM orders WHERE status='pending'"),
+                today_orders=g("SELECT COUNT(*) v FROM orders WHERE " + sold + " AND created_at>=?", (day0,)),
+                month_orders=g("SELECT COUNT(*) v FROM orders WHERE " + sold + " AND created_at>=?", (mon0,)),
+                today_revenue=g("SELECT COALESCE(SUM(total_price),0) v FROM orders WHERE " + sold + " AND created_at>=?", (day0,)),
+                month_revenue=g("SELECT COALESCE(SUM(total_price),0) v FROM orders WHERE " + sold + " AND created_at>=?", (mon0,)),
+                total_revenue=g("SELECT COALESCE(SUM(total_price),0) v FROM orders WHERE " + sold),
+                unread_chats=g("SELECT COUNT(*) v FROM messages WHERE sender='user' AND seen_admin=0"),
+                daily=daily, top_products=top, low_stock=low))
         if p == "/api/admin/users" and m == "GET":
             qq = q.get("q", [""])[0].strip()
             sql = "SELECT id,username,balance,is_admin,status,created_at FROM users ORDER BY id DESC LIMIT 200"
