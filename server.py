@@ -128,6 +128,10 @@ def init_db():
         con.execute("ALTER TABLE orders ADD COLUMN store_id INTEGER")
     if "fulfilled_at" not in ocols:
         con.execute("ALTER TABLE orders ADD COLUMN fulfilled_at INTEGER")
+    if "pay_method" not in ocols:
+        con.execute("ALTER TABLE orders ADD COLUMN pay_method TEXT NOT NULL DEFAULT 'balance'")
+    if "pay_notified" not in ocols:
+        con.execute("ALTER TABLE orders ADD COLUMN pay_notified INTEGER NOT NULL DEFAULT 0")
     con.commit()
     if not con.execute("SELECT 1 FROM users WHERE username='xueli'").fetchone():
         old = con.execute("SELECT id FROM users WHERE username='admin'").fetchone()
@@ -555,6 +559,7 @@ class Handler(BaseHTTPRequestHandler):
             cards = [r["code"] for r in con.execute("SELECT code FROM cards WHERE order_id=? ORDER BY id", (o["id"],))]
             return self.ok(dict(order=dict(order_no=o["order_no"], product_name=o["product_name"], unit_price=o["unit_price"],
                                            quantity=o["quantity"], total_price=o["total_price"], status=o["status"],
+                                           pay_method=o["pay_method"], pay_notified=bool(o["pay_notified"]),
                                            time=fmt_time(o["created_at"]), pay_time=fmt_time(o["created_at"]),
                                            fulfill_time=fmt_time(o["fulfilled_at"]) if o["fulfilled_at"] else "",
                                            cards=cards)))
@@ -678,6 +683,22 @@ class Handler(BaseHTTPRequestHandler):
                     if not pr:
                         raise ApiError("商品不存在或已下架", 404)
                     total = money(pr["price"] * qty)
+                    pm = str(b.get("pay_method") or "balance")
+                    if pm in ("wechat", "alipay"):
+                        # 微信/支付宝直付：先建「待确认付款」单，不扣余额；管理员确认收款后才发货并入账
+                        if pr["stock_mode"] == "auto":
+                            cnt = con.execute("SELECT COUNT(*) c FROM cards WHERE product_id=? AND status='available'", (pid,)).fetchone()["c"]
+                            if cnt < qty:
+                                raise ApiError("库存不足（仅剩 %d 件）" % cnt)
+                        pend = con.execute("SELECT COUNT(*) c FROM orders WHERE user_id=? AND status='paying'", (me["id"],)).fetchone()["c"]
+                        if pend >= 5:
+                            raise ApiError("你已有 5 笔待确认付款的订单，先处理完再下单")
+                        order_no = "XL" + format(int(time.time() * 1000), "X") + secrets.token_hex(2).upper()
+                        t = now()
+                        con.execute("INSERT INTO orders(order_no,user_id,product_id,product_name,unit_price,quantity,total_price,status,created_at,store_id,pay_method,pay_notified) VALUES(?,?,?,?,?,?,?,'paying',?,?,?,0)",
+                                    (order_no, me["id"], pid, pr["name"], pr["price"], qty, total, t, me["store_id"], pm))
+                        con.commit()
+                        return self.ok(dict(order_no=order_no, total_price=total, pay_method=pm, paying=True))
                     bal = con.execute("SELECT balance FROM users WHERE id=?", (me["id"],)).fetchone()["balance"]
                     if bal < total - 1e-9:
                         raise ApiError("余额不足，请联系管理员充值（把你的用户 ID 发给管理员）")
@@ -720,10 +741,27 @@ class Handler(BaseHTTPRequestHandler):
                 cards = [r["code"] for r in con.execute("SELECT code FROM cards WHERE order_id=? ORDER BY id", (o["id"],))]
                 out.append(dict(order_no=o["order_no"], product_name=o["product_name"], unit_price=o["unit_price"],
                                 quantity=o["quantity"], total_price=o["total_price"], status=o["status"],
+                                pay_method=o["pay_method"], pay_notified=bool(o["pay_notified"]),
                                 time=fmt_time(o["created_at"]), pay_time=fmt_time(o["created_at"]),
                                 fulfill_time=fmt_time(o["fulfilled_at"]) if o["fulfilled_at"] else "",
                                 cards=cards))
             return self.ok(dict(list=out))
+        if p == "/api/orders/notify-paid" and m == "POST":
+            no = str(self.body().get("order_no") or "").strip().upper()
+            with LOCK:
+                cur = con.execute("UPDATE orders SET pay_notified=1 WHERE order_no=? AND user_id=? AND status='paying'", (no, me["id"]))
+                con.commit()
+            if not cur.rowcount:
+                raise ApiError("订单不存在或不在待确认状态")
+            return self.ok()
+        if p == "/api/orders/cancel-pay" and m == "POST":
+            no = str(self.body().get("order_no") or "").strip().upper()
+            with LOCK:
+                cur = con.execute("UPDATE orders SET status='cancelled' WHERE order_no=? AND user_id=? AND status='paying'", (no, me["id"]))
+                con.commit()
+            if not cur.rowcount:
+                raise ApiError("订单不存在或不在待确认状态")
+            return self.ok()
 
         # ---------- 钱包（充值即时到账） ----------
         if p == "/api/wallet" and m == "GET":
@@ -893,6 +931,7 @@ class Handler(BaseHTTPRequestHandler):
                 total_revenue=g("SELECT COALESCE(SUM(total_price),0) v FROM orders WHERE " + sold),
                 unread_chats=g("SELECT COUNT(*) v FROM messages WHERE sender='user' AND seen_admin=0"),
                 pending_recharges=g("SELECT COUNT(*) v FROM recharge_requests WHERE status='pending'"),
+                paying_orders=g("SELECT COUNT(*) v FROM orders WHERE status='paying'"),
                 daily=daily, top_products=top, low_stock=low))
         if p == "/api/admin/users" and m == "GET":
             qq = q.get("q", [""])[0].strip()
@@ -1131,7 +1170,7 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/admin/orders" and m == "GET":
             st = q.get("status", [""])[0]
             sql = "SELECT o.*, u.username FROM orders o JOIN users u ON u.id=o.user_id"; args = []
-            if st in ("pending", "done", "cancelled"):
+            if st in ("pending", "done", "cancelled", "paying"):
                 sql += " WHERE o.status=?"; args.append(st)
             sql += " ORDER BY o.id DESC LIMIT 200"
             out = []
@@ -1140,10 +1179,43 @@ class Handler(BaseHTTPRequestHandler):
                 out.append(dict(id=o["id"], order_no=o["order_no"], username=o["username"], product_name=o["product_name"],
                                 unit_price=o["unit_price"],
                                 quantity=o["quantity"], total_price=o["total_price"], status=o["status"],
+                                pay_method=o["pay_method"], pay_notified=bool(o["pay_notified"]),
                                 time=fmt_time(o["created_at"]), pay_time=fmt_time(o["created_at"]),
                                 fulfill_time=fmt_time(o["fulfilled_at"]) if o["fulfilled_at"] else "",
                                 cards=cards))
             return self.ok(dict(list=out))
+        cfp = re.match(r"^/api/admin/orders/(\d+)/confirm-pay$", p)
+        if cfp and m == "POST":
+            oid = int(cfp.group(1))
+            with LOCK:
+                con.execute("BEGIN IMMEDIATE")
+                try:
+                    o = con.execute("SELECT o.*, u.username AS buyer_name FROM orders o JOIN users u ON u.id=o.user_id WHERE o.id=?", (oid,)).fetchone()
+                    if not o or o["status"] != "paying":
+                        raise ApiError("订单不存在或不在待确认付款状态")
+                    t = now()
+                    pr = con.execute("SELECT stock_mode FROM products WHERE id=?", (o["product_id"],)).fetchone()
+                    mode = pr["stock_mode"] if pr else "manual"
+                    cards_out = []
+                    if mode == "auto":
+                        rows = con.execute("SELECT id,code FROM cards WHERE product_id=? AND status='available' ORDER BY id LIMIT ?",
+                                           (o["product_id"], o["quantity"])).fetchall()
+                        if len(rows) < o["quantity"]:
+                            raise ApiError("卡密库存不足（仅剩 %d 件），先补卡密再确认收款" % len(rows))
+                        for r in rows:
+                            con.execute("UPDATE cards SET status='sold',order_id=?,sold_to=?,sold_at=? WHERE id=?", (oid, o["user_id"], t, r["id"]))
+                        cards_out = [r["code"] for r in rows]
+                        con.execute("UPDATE orders SET status='done', fulfilled_at=? WHERE id=?", (t, oid))
+                    else:
+                        con.execute("UPDATE orders SET status='pending' WHERE id=?", (oid,))
+                    credit_sale(con, o["total_price"], o["order_no"], o["product_name"], o["buyer_name"], t)
+                    op_log(con, admin["username"], "确认收款", "%s %s（%s）" % (o["order_no"], o["product_name"], o["pay_method"]))
+                    con.commit()
+                    return self.ok(dict(cards=cards_out, status="done" if mode == "auto" else "pending"))
+                except ApiError:
+                    con.rollback(); raise
+                except Exception as e:
+                    con.rollback(); raise ApiError(str(e))
         ful = re.match(r"^/api/admin/orders/(\d+)/fulfill$", p)
         if ful and m == "POST":
             b = self.body(); oid = int(ful.group(1))
@@ -1217,15 +1289,18 @@ class Handler(BaseHTTPRequestHandler):
                 con.execute("BEGIN IMMEDIATE")
                 try:
                     o = con.execute("SELECT * FROM orders WHERE id=?", (oid,)).fetchone()
-                    if not o or o["status"] != "pending":
-                        raise ApiError("只有待发货订单可以取消")
+                    if not o or o["status"] not in ("pending", "paying"):
+                        raise ApiError("只有待发货/待确认付款订单可以取消")
                     con.execute("UPDATE orders SET status='cancelled' WHERE id=?", (oid,))
-                    bal = con.execute("SELECT balance FROM users WHERE id=?", (o["user_id"],)).fetchone()["balance"]
-                    nb = money(bal + o["total_price"])
-                    con.execute("UPDATE users SET balance=? WHERE id=?", (nb, o["user_id"]))
-                    con.execute("INSERT INTO wallet_logs(user_id,amount,balance_after,reason,created_at) VALUES(?,?,?,?,?)",
-                                (o["user_id"], o["total_price"], nb, "订单取消退款（%s）" % o["order_no"], now()))
-                    debit_sale(con, o["total_price"], o["order_no"], o["product_name"], now())
+                    if o["status"] == "pending":
+                        # 已收款的单：退款原路回买家余额，店主入账同步扣回
+                        bal = con.execute("SELECT balance FROM users WHERE id=?", (o["user_id"],)).fetchone()["balance"]
+                        nb = money(bal + o["total_price"])
+                        con.execute("UPDATE users SET balance=? WHERE id=?", (nb, o["user_id"]))
+                        con.execute("INSERT INTO wallet_logs(user_id,amount,balance_after,reason,created_at) VALUES(?,?,?,?,?)",
+                                    (o["user_id"], o["total_price"], nb, "订单取消退款（%s）" % o["order_no"], now()))
+                        debit_sale(con, o["total_price"], o["order_no"], o["product_name"], now())
+                    # paying（直付未确认收款）：钱还没进系统，直接关单，无退款无扣回
                     con.commit()
                     return self.ok()
                 except ApiError:

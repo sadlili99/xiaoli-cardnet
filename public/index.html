@@ -407,6 +407,25 @@ body.chatopen #mainTabs{display:none}
       <span class="mut">当前余额</span><span class="num" id="buyBal">¥0</span>
     </div>
     <button class="btn press mt14" id="payBtn" style="width:100%;padding:14px">余额支付</button>
+    <div class="flex mt14">
+      <button class="btn press grow" id="buyWxBtn" style="background:var(--ok)">微信支付</button>
+      <button class="btn press grow" id="buyAliBtn">支付宝支付</button>
+    </div>
+    <div class="small mt8" style="text-align:center">微信/支付宝直接付：扫码付款后，管理员确认收款就发货——自动发卡的立刻出卡密，人工发货的转待发货。</div>
+  </div>
+</div>
+
+<div class="mask" id="payMask">
+  <div class="sheet">
+    <div class="grab"></div>
+    <h3 id="payTitle">扫码付款</h3>
+    <div style="text-align:center">
+      <img id="payQrImg" alt="收款码" style="width:220px;max-width:72vw;border-radius:14px;border:1px solid var(--line)">
+      <div class="mt8" id="payAmtLine"></div>
+      <div class="small mt8" id="payTip"></div>
+    </div>
+    <button class="btn press" id="payDoneBtn" style="width:100%;margin-top:14px">我已付款</button>
+    <button class="btn ghost press" data-close="payMask" style="width:100%;margin-top:10px">稍后再付（订单在「我的订单」里）</button>
   </div>
 </div>
 
@@ -809,6 +828,27 @@ $("#payBtn").addEventListener("click", async ()=>{
   btn.disabled = false; btn.textContent = "余额支付";
 });
 $("#okGoOrders").addEventListener("click", ()=>{ closeMask("okMask"); switchView("orders"); });
+/* ===== 商品直付：微信/支付宝扫码 → 管理员确认收款后发货 ===== */
+let payingOrderNo = "";
+async function createDirectPay(method){
+  if(!needLogin()){ closeMask("buyMask"); return; }
+  try{
+    const d = await api("/api/orders",{method:"POST",body:{product_id:buyItem.id, quantity:buyQty, pay_method:method}});
+    payingOrderNo = d.order_no;
+    closeMask("buyMask");
+    $("#payTitle").textContent = method === "wechat" ? "微信扫码付款" : "支付宝扫码付款";
+    $("#payQrImg").src = method === "wechat" ? "/pay-wechat.jpg" : "/pay-alipay.jpg";
+    $("#payAmtLine").innerHTML = `应付 <b class="num" style="font-size:20px">${fmt(d.total_price)}</b> · ${esc(buyItem.name)} ×${buyQty}`;
+    $("#payTip").innerHTML = `订单号 ${esc(d.order_no)}<br>付款备注里写上订单号后 4 位或你的 ID ${me.id}，方便管理员对账。付完点「我已付款」。`;
+    openMask("payMask"); loadShop();
+  }catch(e){ toast(e.message); }
+}
+$("#buyWxBtn").addEventListener("click", ()=>createDirectPay("wechat"));
+$("#buyAliBtn").addEventListener("click", ()=>createDirectPay("alipay"));
+$("#payDoneBtn").addEventListener("click", async ()=>{
+  try{ await api("/api/orders/notify-paid",{method:"POST",body:{order_no:payingOrderNo}}); }catch(e){}
+  closeMask("payMask"); toast("已通知管理员，确认收款后就发货"); switchView("orders");
+});
 function bindCopy(){
   document.querySelectorAll("[data-copy]").forEach(b=>{
     if(b._bound) return; b._bound = true;
@@ -819,7 +859,7 @@ function bindCopy(){
 const _ordReg = {};
 function orderHtml(o, showUser){
   _ordReg[o.order_no] = o;
-  const st = {done:'<span class="st done">已完成</span>', pending:'<span class="st pending">待发货</span>', cancelled:'<span class="st cancelled">已取消</span>'}[o.status]||o.status;
+  const st = {done:'<span class="st done">已完成</span>', pending:'<span class="st pending">待发货</span>', cancelled:'<span class="st cancelled">已取消</span>', paying:'<span class="st pending">待确认付款</span>'}[o.status]||o.status;
   return `<div class="rowitem">
     <div class="flex wrap2"><b>${esc(o.product_name)}</b>${st}
       <span class="small grow" style="text-align:right">${esc(o.time)}</span></div>
@@ -827,17 +867,29 @@ function orderHtml(o, showUser){
       ${showUser?` · 用户 ${esc(o.username||"")}`:""} · x${o.quantity} · <span class="num">${fmt(o.total_price)}</span>
       <button class="btn ghost sm press" data-detail="${esc(o.order_no)}" style="margin-left:6px">详细</button></div>
     ${o.cards && o.cards.length ? `<div class="mt8">${o.cards.map(c=>`<div class="flex mb8"><code class="codemono grow">${esc(c)}</code><button class="copybtn press" data-copy="${esc(c)}">复制</button></div>`).join("")}</div>` : ""}
+    ${o._mine && o.status === "paying" ? `<div class="flex mt8">${o.pay_notified ? '<span class="st pending">已通知管理员，等确认收款</span>' : `<button class="btn sm press" data-notify="${esc(o.order_no)}">我已付款</button>`}<button class="btn ghost sm press" data-cancelpay="${esc(o.order_no)}">取消订单</button></div>` : ""}
   </div>`;
+}
+function bindPayActions(){
+  document.querySelectorAll("[data-notify]").forEach(b=>b.addEventListener("click", async ()=>{
+    try{ await api("/api/orders/notify-paid",{method:"POST",body:{order_no:b.dataset.notify}}); toast("已通知管理员，确认收款后发货"); loadOrders(); }catch(e){ toast(e.message); }
+  }));
+  document.querySelectorAll("[data-cancelpay]").forEach(b=>b.addEventListener("click", async ()=>{
+    if(!confirm("取消这笔待确认付款的订单？")) return;
+    try{ await api("/api/orders/cancel-pay",{method:"POST",body:{order_no:b.dataset.cancelpay}}); toast("已取消"); loadOrders(); }catch(e){ toast(e.message); }
+  }));
 }
 function bindDetail(){
   document.querySelectorAll("[data-detail]").forEach(b=>b.addEventListener("click", ()=>showOrderDetail(b.dataset.detail)));
 }
 function showOrderDetail(no){
   const o = _ordReg[no]; if(!o) return;
-  const stTxt = {done:"已完成（已发货）", pending:"待发货", cancelled:"已取消（已退款）"}[o.status] || o.status;
-  const ful = o.status === "pending" ? '<span class="st pending">等待发货中</span>'
+  const stTxt = {done:"已完成（已发货）", pending:"待发货", cancelled:"已取消（已退款）", paying:"待确认付款"}[o.status] || o.status;
+  const ful = o.status === "paying" ? "确认收款后发货"
+    : o.status === "pending" ? '<span class="st pending">等待发货中</span>'
     : o.status === "done" ? (o.fulfill_time ? esc(o.fulfill_time) : "已发货（早期订单未记录时间）")
     : "已取消，货款已原路退回买家余额";
+  const payTxt = o.status === "paying" ? `待管理员确认收款（下单于 ${esc(o.pay_time || o.time || "")}）` : esc(o.pay_time || o.time || "");
   const row = (k, v)=>`<div class="rowitem flex"><span class="small grow">${k}</span><span style="text-align:right">${v}</span></div>`;
   $("#orderDetail").innerHTML =
     row("商品", `<b>${esc(o.product_name)}</b>`) +
@@ -847,7 +899,8 @@ function showOrderDetail(no){
     row("数量", "× " + o.quantity) +
     row("总价", `<b class="num">${fmt(o.total_price)}</b>`) +
     row("订单状态", stTxt) +
-    row("付款时间", esc(o.pay_time || o.time || "")) +
+    (o.pay_method ? row("支付方式", {balance:"余额支付", wechat:"微信支付", alipay:"支付宝支付"}[o.pay_method] || o.pay_method) : "") +
+    row("付款时间", payTxt) +
     row("发货时间", ful) +
     (o.cards && o.cards.length ? `<div class="rowitem"><div class="small" style="margin-bottom:6px">卡密</div>${o.cards.map(c=>`<div class="flex mb8"><code class="codemono grow">${esc(c)}</code><button class="copybtn press" data-copy="${esc(c)}">复制</button></div>`).join("")}</div>` : "");
   bindCopy();
@@ -859,8 +912,8 @@ async function loadOrders(){
   box.innerHTML = '<div class="empty">加载中…</div>';
   try{
     const d = await api("/api/orders");
-    box.innerHTML = d.list.length ? d.list.map(o=>orderHtml(o,false)).join("") : '<div class="empty">还没有订单，去商城逛逛</div>';
-    bindCopy(); bindDetail();
+    box.innerHTML = d.list.length ? d.list.map(o=>{ o._mine = true; return orderHtml(o,false); }).join("") : '<div class="empty">还没有订单，去商城逛逛</div>';
+    bindCopy(); bindDetail(); bindPayActions();
   }catch(e){ box.innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
 }
 $("#queryBtn").addEventListener("click", async ()=>{
@@ -1060,7 +1113,7 @@ async function adminHomeView(){
     ["本月销售额", fmt(s.month_revenue), "orders"], ["本月订单", s.month_orders + " 单", "orders"],
     ["累计销售额", fmt(s.total_revenue), "orders"], ["待发货", s.pending_orders + " 单", "orders"],
     ["用户数", s.users, "users"], ["在售商品", s.products, "products"], ["客服未读", s.unread_chats + " 条", "service"],
-    ["待确认充值", (s.pending_recharges ?? 0) + " 笔", "recharges"]];
+    ["待确认充值", (s.pending_recharges ?? 0) + " 笔", "recharges"], ["待确认付款", (s.paying_orders ?? 0) + " 笔", "orders"]];
   $("#adminBody").innerHTML = `
     <div class="stats" style="margin-top:2px">${cards.map(([k,v,go])=>`<div class="stat glass press" data-go="${go}"><div class="k">${k}</div><div class="v num">${v}</div><div class="small" style="color:var(--ink3)">点击查看 ›</div></div>`).join("")}</div>
     <div class="panel glass"><h3>销售统计图 · 近 14 天（点柱子看当天明细）</h3>
@@ -1158,7 +1211,7 @@ async function storeHomeView(){
   $("#storeBody").innerHTML = `
     <div class="stats">${cards.map(([k,v])=>`<div class="stat glass"><div class="k">${k}</div><div class="v num">${v}</div></div>`).join("")}</div>
     <div class="panel glass"><h3>分店订单（最近 100）</h3>
-      ${o.list.length ? o.list.map(x=>{ _ordReg[x.order_no] = x; return `<div class="rowitem"><div class="flex"><span class="grow">${esc(x.product_name)} ×${x.quantity}</span><b class="num">${fmt(x.total_price)}</b><span class="st ${x.status}">${x.status === "done" ? "已完成" : x.status === "pending" ? "待发货" : "已取消"}</span></div>
+      ${o.list.length ? o.list.map(x=>{ _ordReg[x.order_no] = x; return `<div class="rowitem"><div class="flex"><span class="grow">${esc(x.product_name)} ×${x.quantity}</span><b class="num">${fmt(x.total_price)}</b><span class="st ${x.status}">${x.status === "done" ? "已完成" : x.status === "pending" ? "待发货" : x.status === "paying" ? "待确认付款" : "已取消"}</span></div>
       <div class="small">${esc(x.order_no)} · 买家 ${esc(x.buyer)} · ${esc(x.time)} <button class="btn ghost sm press" data-detail="${esc(x.order_no)}">详细</button></div></div>`; }).join("") : '<div class="empty">还没有订单，把你的分店链接发出去吧</div>'}</div>
     <div class="panel glass"><h3>分店顾客（${u.list.length}）</h3>
       ${u.list.length ? u.list.map(x=>`<div class="rowitem flex"><span class="grow">${esc(x.username)} <span class="small">ID ${x.id}</span></span><span class="small">余额 ${fmt(x.balance)} · ${esc(x.time)} 注册</span></div>`).join("") : '<div class="empty">还没有顾客通过你的链接注册</div>'}</div>`;
@@ -1380,15 +1433,24 @@ async function adminOrdersView(st){
   $("#adminBody").innerHTML = `<div class="panel glass">
     <h3>订单管理</h3>
     <div class="flex wrap2">
-      ${[["","全部"],["pending","待发货"],["done","已完成"],["cancelled","已取消"]].map(([v,t])=>`<button class="qamt press ${st===v?"on":""}" data-ost="${v}">${t}</button>`).join("")}
+      ${[["","全部"],["paying","待确认付款"],["pending","待发货"],["done","已完成"],["cancelled","已取消"]].map(([v,t])=>`<button class="qamt press ${st===v?"on":""}" data-ost="${v}">${t}</button>`).join("")}
     </div>
     <div class="mt8">${d.list.length ? d.list.map(o=>orderHtml(o,true) + (o.status==="pending" ? `
       <div class="flex wrap2 mb8">
         <input class="inp grow" id="ful-${o.id}" placeholder="发货卡密（一行一张；留空则从库存自动取）">
         <button class="btn sm press" data-ful="${o.id}">发货</button>
         <button class="btn danger sm press" data-ocx="${o.id}">取消并退款</button>
+      </div>` : "") + (o.status==="paying" ? `
+      <div class="flex wrap2 mb8">
+        <span class="small grow">${o.pay_notified ? "用户已点「我已付款」" : "用户还没点付款"} · ${o.pay_method==="wechat"?"微信":"支付宝"}直付 · 去对应账户核对收款后点确认</span>
+        <button class="btn sm press" data-cpay="${o.id}">确认收款</button>
+        <button class="btn danger sm press" data-ocx="${o.id}">取消订单</button>
       </div>` : "")).join("") : '<div class="empty">暂无订单</div>'}</div></div>`;
   bindCopy(); bindDetail();
+  document.querySelectorAll("[data-cpay]").forEach(b=>b.addEventListener("click", async ()=>{
+    try{ const r = await api(`/api/admin/orders/${b.dataset.cpay}/confirm-pay`,{method:"POST",body:{}});
+      toast(r.status === "done" ? "已确认收款，卡密已发出" : "已确认收款，订单转待发货"); loadAdmin(); }catch(e){ toast(e.message); }
+  }));
   document.querySelectorAll("[data-ost]").forEach(b=>b.addEventListener("click", ()=>adminOrdersView(b.dataset.ost)));
   document.querySelectorAll("[data-ful]").forEach(b=>b.addEventListener("click", async ()=>{
     try{ await api(`/api/admin/orders/${b.dataset.ful}/fulfill`,{method:"POST",body:{codes:$("#ful-"+b.dataset.ful).value}});
