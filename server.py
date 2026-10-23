@@ -109,6 +109,10 @@ def init_db():
       id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, slug TEXT UNIQUE NOT NULL,
       owner_id INTEGER, status INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL,
       commission REAL NOT NULL DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS recharge_requests(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
+      amount REAL NOT NULL, method TEXT NOT NULL DEFAULT 'wechat',
+      status TEXT NOT NULL DEFAULT 'pending', created_at INTEGER NOT NULL, handled_at INTEGER);
     """)
     scols = [r["name"] for r in con.execute("PRAGMA table_info(stores)")]
     if "commission" not in scols:
@@ -727,6 +731,27 @@ class Handler(BaseHTTPRequestHandler):
             logs = [dict(amount=r["amount"], balance_after=r["balance_after"], reason=r["reason"], time=fmt_time(r["created_at"]))
                     for r in con.execute("SELECT * FROM wallet_logs WHERE user_id=? ORDER BY id DESC LIMIT 50", (me["id"],))]
             return self.ok(dict(balance=bal, logs=logs))
+        # ---------- 充值申请（用户扫码直接付，管理员核对后确认到账） ----------
+        if p == "/api/recharge-requests" and m == "POST":
+            b = self.body()
+            amount = money(b.get("amount") or 0)
+            method = str(b.get("method") or "wechat")
+            if not (1 <= amount <= 100000):
+                raise ApiError("充值金额需在 1-100000 元之间")
+            if method not in ("wechat", "alipay"):
+                raise ApiError("付款方式不对")
+            pend = con.execute("SELECT COUNT(*) c FROM recharge_requests WHERE user_id=? AND status='pending'", (me["id"],)).fetchone()["c"]
+            if pend >= 5:
+                raise ApiError("你已有 5 笔待确认的申请，先等管理员处理")
+            with LOCK:
+                cur = con.execute("INSERT INTO recharge_requests(user_id,amount,method,status,created_at) VALUES(?,?,?,'pending',?)",
+                                  (me["id"], amount, method, now()))
+                con.commit()
+            return self.ok(dict(id=cur.lastrowid))
+        if p == "/api/recharge-requests" and m == "GET":
+            rows = con.execute("SELECT * FROM recharge_requests WHERE user_id=? ORDER BY id DESC LIMIT 10", (me["id"],)).fetchall()
+            return self.ok(dict(list=[dict(id=r["id"], amount=r["amount"], method=r["method"], status=r["status"],
+                                           time=fmt_time(r["created_at"])) for r in rows]))
         if p == "/api/recharge" and m == "POST":
             if not me["is_admin"]:
                 raise ApiError("本店不开放自助充值：请把你的用户 ID 发给管理员，由管理员为你添加余额", 403)
@@ -867,6 +892,7 @@ class Handler(BaseHTTPRequestHandler):
                 month_revenue=g("SELECT COALESCE(SUM(total_price),0) v FROM orders WHERE " + sold + " AND created_at>=?", (mon0,)),
                 total_revenue=g("SELECT COALESCE(SUM(total_price),0) v FROM orders WHERE " + sold),
                 unread_chats=g("SELECT COUNT(*) v FROM messages WHERE sender='user' AND seen_admin=0"),
+                pending_recharges=g("SELECT COUNT(*) v FROM recharge_requests WHERE status='pending'"),
                 daily=daily, top_products=top, low_stock=low))
         if p == "/api/admin/users" and m == "GET":
             qq = q.get("q", [""])[0].strip()
@@ -1147,6 +1173,39 @@ class Handler(BaseHTTPRequestHandler):
                     op_log(con, admin["username"], "人工发货", o["order_no"])
                     con.commit()
                     return self.ok(dict(cards=codes))
+                except ApiError:
+                    con.rollback(); raise
+                except Exception as e:
+                    con.rollback(); raise ApiError(str(e))
+        # ---------- 充值审核（管理员确认到账 → 入余额+资金明细） ----------
+        if p == "/api/admin/recharge-requests" and m == "GET":
+            rows = con.execute("""SELECT r.*, u.username FROM recharge_requests r JOIN users u ON u.id=r.user_id
+                                  ORDER BY (r.status='pending') DESC, r.id DESC LIMIT 100""").fetchall()
+            return self.ok(dict(list=[dict(id=r["id"], user_id=r["user_id"], username=r["username"], amount=r["amount"],
+                                           method=r["method"], status=r["status"], time=fmt_time(r["created_at"]),
+                                           handled_time=fmt_time(r["handled_at"]) if r["handled_at"] else "") for r in rows]))
+        rr = re.match(r"^/api/admin/recharge-requests/(\d+)/(approve|reject)$", p)
+        if rr and m == "POST":
+            rid, act = int(rr.group(1)), rr.group(2)
+            with LOCK:
+                con.execute("BEGIN IMMEDIATE")
+                try:
+                    r = con.execute("SELECT * FROM recharge_requests WHERE id=?", (rid,)).fetchone()
+                    if not r or r["status"] != "pending":
+                        raise ApiError("申请不存在或已处理")
+                    if act == "approve":
+                        bal = con.execute("SELECT balance FROM users WHERE id=?", (r["user_id"],)).fetchone()["balance"]
+                        nb = money(bal + r["amount"])
+                        con.execute("UPDATE users SET balance=? WHERE id=?", (nb, r["user_id"]))
+                        con.execute("INSERT INTO wallet_logs(user_id,amount,balance_after,reason,created_at) VALUES(?,?,?,?,?)",
+                                    (r["user_id"], r["amount"], nb, "账户充值", now()))
+                        con.execute("UPDATE recharge_requests SET status='done', handled_at=? WHERE id=?", (now(), rid))
+                        op_log(con, admin["username"], "充值到账", "user %d +%0.2f" % (r["user_id"], r["amount"]))
+                    else:
+                        con.execute("UPDATE recharge_requests SET status='rejected', handled_at=? WHERE id=?", (now(), rid))
+                        op_log(con, admin["username"], "充值驳回", "申请 %d" % rid)
+                    con.commit()
+                    return self.ok()
                 except ApiError:
                     con.rollback(); raise
                 except Exception as e:

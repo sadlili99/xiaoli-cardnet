@@ -286,10 +286,31 @@ body.chatopen #mainTabs{display:none}
         </div>
       </div>
       <div id="rcContact" style="display:none">
-        <div class="small mt10">本站不开放自助充值。把你的用户 ID 发给管理员，管理员给你添加余额后，刷新本页就能看到。</div>
+        <div class="small mt10">直接付款充值：选金额 → 扫码付款 → 点「我已付款」，管理员核对到账后就给你加余额。</div>
+        <div class="qrow" id="uAmts">
+          <button class="qamt press num" data-a="10">10</button>
+          <button class="qamt press num on" data-a="50">50</button>
+          <button class="qamt press num" data-a="100">100</button>
+          <button class="qamt press num" data-a="200">200</button>
+          <button class="qamt press num" data-a="500">500</button>
+        </div>
+        <div class="flex mt14">
+          <input class="inp grow num" id="uAmtInp" type="number" min="1" placeholder="或输入金额">
+        </div>
+        <div class="flex mt14">
+          <button class="btn press grow" id="payWx">微信付款</button>
+          <button class="btn press grow" id="payAli" style="background:var(--ok)">支付宝付款</button>
+        </div>
+        <div id="uQrBox" style="display:none;text-align:center;margin-top:14px">
+          <img id="uQrImg" alt="收款码" style="width:210px;max-width:70vw;border-radius:14px;border:1px solid var(--line)">
+          <div class="small mt8" id="uQrTip"></div>
+          <button class="btn press" id="uPaidBtn" style="width:100%;margin-top:10px">我已付款，提交到账申请</button>
+          <div class="small mt8">提交后管理员会核对他的收款记录，确认到账就给你加余额，一般很快。</div>
+        </div>
+        <div id="uReqBox" class="mt14"></div>
         <div class="flex mt10"><span>我的 ID：<b class="num" id="myIdBig" style="font-size:18px;color:var(--ink)">—</b></span>
         <button class="copybtn press" id="copyIdBtn">复制 ID</button></div>
-        <button class="btn press" id="contactBtn" style="margin-top:12px;width:100%">联系管理员充值</button>
+        <button class="btn ghost press" id="contactBtn" style="margin-top:12px;width:100%">有问题？联系管理员</button>
       </div>
     </div>
     <div class="panel glass">
@@ -318,6 +339,7 @@ body.chatopen #mainTabs{display:none}
       <button class="subtab press" data-at="orders">订单</button>
       <button class="subtab press" data-at="users">用户与余额</button>
       <button class="subtab press" data-at="stores">分店</button>
+      <button class="subtab press" data-at="recharges">充值审核</button>
       <button class="subtab press" data-at="cats">分类与公告</button>
       <button class="subtab press" data-at="logs">操作日志</button>
     </div>
@@ -861,7 +883,7 @@ async function loadWallet(){
     $("#rcZone").style.display = me.is_admin ? "" : "none";
     $("#rcContact").style.display = me.is_admin ? "none" : "";
     $("#balNote").textContent = me.is_admin ? "充值即时到账，每笔记录在下方资金明细里可核对" : "余额由管理员添加，每笔记录在下方资金明细里可核对";
-    if(!me.is_admin) $("#myIdBig").textContent = me.id;
+    if(!me.is_admin){ $("#myIdBig").textContent = me.id; setupUserRecharge(); loadMyRequests(); }
     $("#acctBox").innerHTML = `当前账号：<b style="color:var(--ink)">${esc(me.username)}</b>${me.is_admin?"（管理员，可进商户端）":""}
       <div class="flex mt8"><span>我的 ID：<b class="num" style="color:var(--ink)">${me.id}</b></span>
       <button class="copybtn press" data-copy="${me.id}">复制 ID</button></div>
@@ -873,6 +895,39 @@ async function loadWallet(){
       <div class="small" style="text-align:right">余额 ${Number(l.balance_after).toFixed(2)}</div></div></div>`).join("")
       : '<div class="empty">暂无明细</div>';
   }catch(e){ toast(e.message); }
+}
+/* ===== 用户直接付款充值：扫码付款 → 提交申请 → 管理员确认到账 ===== */
+let uAmt = 50, uMethod = "";
+function setupUserRecharge(){
+  const zone = $("#uAmts"); if(!zone || zone.dataset.bound) return; zone.dataset.bound = "1";
+  document.querySelectorAll("#uAmts .qamt").forEach(b=>b.addEventListener("click", ()=>{
+    document.querySelectorAll("#uAmts .qamt").forEach(x=>x.classList.remove("on")); b.classList.add("on");
+    uAmt = Number(b.dataset.a); $("#uAmtInp").value = "";
+  }));
+  $("#uAmtInp").addEventListener("input", ()=>{ uAmt = Number($("#uAmtInp").value || 0); document.querySelectorAll("#uAmts .qamt").forEach(x=>x.classList.remove("on")); });
+  const showQr = (method)=>{
+    const amt = Number($("#uAmtInp").value || uAmt || 0);
+    if(!(amt >= 1)) return toast("先选或输入金额");
+    uAmt = amt; uMethod = method;
+    $("#uQrImg").src = method === "wechat" ? "/pay-wechat.jpg" : "/pay-alipay.jpg";
+    $("#uQrTip").innerHTML = `请用${method === "wechat" ? "微信" : "支付宝"}扫码付 <b class="num">${fmt(amt)}</b>，付款备注里写上你的 ID：<b>${me.id}</b>`;
+    $("#uQrBox").style.display = "";
+    $("#uQrBox").scrollIntoView({behavior:"smooth", block:"center"});
+  };
+  $("#payWx").addEventListener("click", ()=>showQr("wechat"));
+  $("#payAli").addEventListener("click", ()=>showQr("alipay"));
+  $("#uPaidBtn").addEventListener("click", async ()=>{
+    try{ await api("/api/recharge-requests", {method:"POST", body:{amount: uAmt, method: uMethod}});
+      toast("已提交，等管理员确认到账"); $("#uQrBox").style.display = "none"; loadMyRequests();
+    }catch(e){ toast(e.message); }
+  });
+}
+async function loadMyRequests(){
+  const box = $("#uReqBox"); if(!box || !me || me.is_admin) return;
+  try{ const d = await api("/api/recharge-requests");
+    const stTxt = {pending:'<span class="st pending">待确认</span>', done:'<span class="st done">已到账</span>', rejected:'<span class="st cancelled">已驳回</span>'};
+    box.innerHTML = d.list.length ? `<div class="small" style="margin-bottom:6px">我的充值申请</div>` + d.list.map(r=>`<div class="rowitem flex"><div class="grow"><span class="num">${fmt(r.amount)}</span> <span class="small">${r.method === "wechat" ? "微信" : "支付宝"} · ${esc(r.time)}</span></div>${stTxt[r.status] || r.status}</div>`).join("") : "";
+  }catch(e){}
 }
 function animateNum(el, to){
   const from = parseFloat(el.dataset.v||"0"), t0 = performance.now();
@@ -978,6 +1033,7 @@ async function loadAdmin(){
     if(adminMode==="orders") return adminOrdersView("");
     if(adminMode==="users") return adminUsersView("");
     if(adminMode==="stores") return adminStoresView();
+    if(adminMode==="recharges") return adminRechargesView();
     if(adminMode==="cats") return adminCatsView();
     if(adminMode==="logs") return adminLogsView();
   }catch(e){ toast(e.message); }
@@ -1003,7 +1059,8 @@ async function adminHomeView(){
     ["今日销售额", fmt(s.today_revenue), "orders"], ["今日订单", s.today_orders + " 单", "orders"],
     ["本月销售额", fmt(s.month_revenue), "orders"], ["本月订单", s.month_orders + " 单", "orders"],
     ["累计销售额", fmt(s.total_revenue), "orders"], ["待发货", s.pending_orders + " 单", "orders"],
-    ["用户数", s.users, "users"], ["在售商品", s.products, "products"], ["客服未读", s.unread_chats + " 条", "service"]];
+    ["用户数", s.users, "users"], ["在售商品", s.products, "products"], ["客服未读", s.unread_chats + " 条", "service"],
+    ["待确认充值", (s.pending_recharges ?? 0) + " 笔", "recharges"]];
   $("#adminBody").innerHTML = `
     <div class="stats" style="margin-top:2px">${cards.map(([k,v,go])=>`<div class="stat glass press" data-go="${go}"><div class="k">${k}</div><div class="v num">${v}</div><div class="small" style="color:var(--ink3)">点击查看 ›</div></div>`).join("")}</div>
     <div class="panel glass"><h3>销售统计图 · 近 14 天（点柱子看当天明细）</h3>
@@ -1066,6 +1123,28 @@ async function adminStoresView(){
   document.querySelectorAll("[data-storedel]").forEach(b=>b.addEventListener("click", async ()=>{
     if(!confirm("删除分店？分店账号会一并删除；名下顾客会转回总店（账号和余额不受影响），历史订单不再计入任何分店。")) return;
     try{ await api(`/api/admin/stores/${b.dataset.storedel}`, {method:"DELETE"}); toast("已删除"); adminStoresView(); }catch(e){ toast(e.message); }
+  }));
+}
+/* ===== 商户端：充值审核 ===== */
+async function adminRechargesView(){
+  const d = await api("/api/admin/recharge-requests");
+  const pend = d.list.filter(r=>r.status === "pending"), hist = d.list.filter(r=>r.status !== "pending");
+  const rowHtml = (r, withBtns)=>`<div class="rowitem">
+    <div class="flex"><b class="grow">${esc(r.username)} <span class="small">ID ${r.user_id}</span></b><span class="num" style="font-weight:700">${fmt(r.amount)}</span>
+    ${r.status === "pending" ? '<span class="st pending">待确认</span>' : r.status === "done" ? '<span class="st done">已到账</span>' : '<span class="st cancelled">已驳回</span>'}</div>
+    <div class="small mt8">${r.method === "wechat" ? "微信" : "支付宝"}付款 · 申请于 ${esc(r.time)}${r.handled_time ? " · 处理于 " + esc(r.handled_time) : ""}</div>
+    ${withBtns ? `<div class="flex mt8"><button class="btn sm press" data-rok="${r.id}">确认到账，加余额</button><button class="btn ghost sm press" data-rno="${r.id}" style="color:var(--bad)">没收到，驳回</button></div>
+    <div class="small mt8">先去你的${r.method === "wechat" ? "微信" : "支付宝"}里核对这笔收款，对得上再点确认到账。</div>` : ""}
+  </div>`;
+  $("#adminBody").innerHTML = `<div class="panel glass"><h3>充值审核（待确认 ${pend.length}）</h3>
+    ${pend.length ? pend.map(r=>rowHtml(r, true)).join("") : '<div class="empty">没有待确认的充值申请</div>'}</div>
+  ${hist.length ? `<div class="panel glass"><h3>处理记录</h3>${hist.map(r=>rowHtml(r, false)).join("")}</div>` : ""}`;
+  document.querySelectorAll("[data-rok]").forEach(b=>b.addEventListener("click", async ()=>{
+    try{ await api(`/api/admin/recharge-requests/${b.dataset.rok}/approve`, {method:"POST", body:{}}); toast("已到账，余额已加上"); adminRechargesView(); }catch(e){ toast(e.message); }
+  }));
+  document.querySelectorAll("[data-rno]").forEach(b=>b.addEventListener("click", async ()=>{
+    if(!confirm("确定没收到这笔钱？驳回后用户能看到已驳回。")) return;
+    try{ await api(`/api/admin/recharge-requests/${b.dataset.rno}/reject`, {method:"POST", body:{}}); toast("已驳回"); adminRechargesView(); }catch(e){ toast(e.message); }
   }));
 }
 /* ===== 分店主：我的分店 ===== */
