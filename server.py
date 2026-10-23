@@ -122,6 +122,8 @@ def init_db():
     ocols = [r["name"] for r in con.execute("PRAGMA table_info(orders)")]
     if "store_id" not in ocols:
         con.execute("ALTER TABLE orders ADD COLUMN store_id INTEGER")
+    if "fulfilled_at" not in ocols:
+        con.execute("ALTER TABLE orders ADD COLUMN fulfilled_at INTEGER")
     con.commit()
     if not con.execute("SELECT 1 FROM users WHERE username='xueli'").fetchone():
         old = con.execute("SELECT id FROM users WHERE username='admin'").fetchone()
@@ -549,7 +551,9 @@ class Handler(BaseHTTPRequestHandler):
             cards = [r["code"] for r in con.execute("SELECT code FROM cards WHERE order_id=? ORDER BY id", (o["id"],))]
             return self.ok(dict(order=dict(order_no=o["order_no"], product_name=o["product_name"], unit_price=o["unit_price"],
                                            quantity=o["quantity"], total_price=o["total_price"], status=o["status"],
-                                           time=fmt_time(o["created_at"]), cards=cards)))
+                                           time=fmt_time(o["created_at"]), pay_time=fmt_time(o["created_at"]),
+                                           fulfill_time=fmt_time(o["fulfilled_at"]) if o["fulfilled_at"] else "",
+                                           cards=cards)))
 
         # ---------- 分店门面（公开：进店链接显示分店名） ----------
         if p == "/api/storefront" and m == "GET":
@@ -626,11 +630,13 @@ class Handler(BaseHTTPRequestHandler):
                 rows = con.execute("SELECT id,username,balance,created_at FROM users WHERE store_id=? AND is_store=0 ORDER BY id DESC LIMIT 200", (sid,)).fetchall()
                 return self.ok(dict(list=[dict(id=r["id"], username=r["username"], balance=r["balance"], time=fmt_time(r["created_at"])) for r in rows]))
             if p == "/api/store/orders" and m == "GET":
-                rows = con.execute("""SELECT o.order_no,o.product_name,o.quantity,o.total_price,o.status,o.created_at,u.username
+                rows = con.execute("""SELECT o.order_no,o.product_name,o.unit_price,o.quantity,o.total_price,o.status,o.created_at,o.fulfilled_at,u.username
                                       FROM orders o JOIN users u ON u.id=o.user_id WHERE o.store_id=? ORDER BY o.id DESC LIMIT 100""", (sid,)).fetchall()
-                return self.ok(dict(list=[dict(order_no=r["order_no"], product_name=r["product_name"], quantity=r["quantity"],
-                                               total_price=r["total_price"], status=r["status"], buyer=r["username"],
-                                               time=fmt_time(r["created_at"])) for r in rows]))
+                return self.ok(dict(list=[dict(order_no=r["order_no"], product_name=r["product_name"], unit_price=r["unit_price"], quantity=r["quantity"],
+                                               total_price=r["total_price"], status=r["status"], buyer=r["username"], username=r["username"],
+                                               time=fmt_time(r["created_at"]), pay_time=fmt_time(r["created_at"]),
+                                               fulfill_time=fmt_time(r["fulfilled_at"]) if r["fulfilled_at"] else "",
+                                               cards=[]) for r in rows]))
             raise ApiError("接口不存在", 404)
         if p == "/api/logout" and m == "POST":
             token = (self.headers.get("Authorization") or "").split(" ")[-1]
@@ -678,8 +684,8 @@ class Handler(BaseHTTPRequestHandler):
                                            (pid, qty)).fetchall()
                         if len(rows) < qty:
                             raise ApiError("库存不足（仅剩 %d 件）" % len(rows))
-                        cur = con.execute("INSERT INTO orders(order_no,user_id,product_id,product_name,unit_price,quantity,total_price,status,created_at,store_id) VALUES(?,?,?,?,?,?,?,'done',?,?)",
-                                          (order_no, me["id"], pid, pr["name"], pr["price"], qty, total, t, me["store_id"]))
+                        cur = con.execute("INSERT INTO orders(order_no,user_id,product_id,product_name,unit_price,quantity,total_price,status,created_at,fulfilled_at,store_id) VALUES(?,?,?,?,?,?,?,'done',?,?,?)",
+                                          (order_no, me["id"], pid, pr["name"], pr["price"], qty, total, t, t, me["store_id"]))
                         oid = cur.lastrowid
                         nb = money(bal - total)
                         con.execute("UPDATE users SET balance=? WHERE id=?", (nb, me["id"]))
@@ -710,7 +716,9 @@ class Handler(BaseHTTPRequestHandler):
                 cards = [r["code"] for r in con.execute("SELECT code FROM cards WHERE order_id=? ORDER BY id", (o["id"],))]
                 out.append(dict(order_no=o["order_no"], product_name=o["product_name"], unit_price=o["unit_price"],
                                 quantity=o["quantity"], total_price=o["total_price"], status=o["status"],
-                                time=fmt_time(o["created_at"]), cards=cards))
+                                time=fmt_time(o["created_at"]), pay_time=fmt_time(o["created_at"]),
+                                fulfill_time=fmt_time(o["fulfilled_at"]) if o["fulfilled_at"] else "",
+                                cards=cards))
             return self.ok(dict(list=out))
 
         # ---------- 钱包（充值即时到账） ----------
@@ -1104,8 +1112,11 @@ class Handler(BaseHTTPRequestHandler):
             for o in con.execute(sql, args):
                 cards = [r["code"] for r in con.execute("SELECT code FROM cards WHERE order_id=? ORDER BY id", (o["id"],))]
                 out.append(dict(id=o["id"], order_no=o["order_no"], username=o["username"], product_name=o["product_name"],
+                                unit_price=o["unit_price"],
                                 quantity=o["quantity"], total_price=o["total_price"], status=o["status"],
-                                time=fmt_time(o["created_at"]), cards=cards))
+                                time=fmt_time(o["created_at"]), pay_time=fmt_time(o["created_at"]),
+                                fulfill_time=fmt_time(o["fulfilled_at"]) if o["fulfilled_at"] else "",
+                                cards=cards))
             return self.ok(dict(list=out))
         ful = re.match(r"^/api/admin/orders/(\d+)/fulfill$", p)
         if ful and m == "POST":
@@ -1132,7 +1143,7 @@ class Handler(BaseHTTPRequestHandler):
                         codes = codes[: o["quantity"]]
                         con.executemany("INSERT INTO cards(product_id,code,status,order_id,sold_to,sold_at,created_at) VALUES(?,?,'sold',?,?,?,?)",
                                         [(o["product_id"], c[:500], oid, o["user_id"], t, t) for c in codes])
-                    con.execute("UPDATE orders SET status='done' WHERE id=?", (oid,))
+                    con.execute("UPDATE orders SET status='done', fulfilled_at=? WHERE id=?", (t, oid))
                     op_log(con, admin["username"], "人工发货", o["order_no"])
                     con.commit()
                     return self.ok(dict(cards=codes))

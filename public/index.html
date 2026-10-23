@@ -406,6 +406,15 @@ body.chatopen #mainTabs{display:none}
   </div>
 </div>
 
+<div class="mask" id="orderMask">
+  <div class="sheet">
+    <div class="grab"></div>
+    <h3>订单详情</h3>
+    <div id="orderDetail"></div>
+    <button class="btn ghost press" data-close="orderMask" style="margin-top:12px;width:100%">关闭</button>
+  </div>
+</div>
+
 <div class="chatpage" id="chatPage">
   <div class="chathead">
     <button class="back press" id="chatBackBtn">‹</button>
@@ -785,15 +794,42 @@ function bindCopy(){
   });
 }
 
+const _ordReg = {};
 function orderHtml(o, showUser){
+  _ordReg[o.order_no] = o;
   const st = {done:'<span class="st done">已完成</span>', pending:'<span class="st pending">待发货</span>', cancelled:'<span class="st cancelled">已取消</span>'}[o.status]||o.status;
   return `<div class="rowitem">
     <div class="flex wrap2"><b>${esc(o.product_name)}</b>${st}
       <span class="small grow" style="text-align:right">${esc(o.time)}</span></div>
     <div class="mut mt8">订单号 <code class="codemono">${esc(o.order_no)}</code>
-      ${showUser?` · 用户 ${esc(o.username||"")}`:""} · x${o.quantity} · <span class="num">${fmt(o.total_price)}</span></div>
+      ${showUser?` · 用户 ${esc(o.username||"")}`:""} · x${o.quantity} · <span class="num">${fmt(o.total_price)}</span>
+      <button class="btn ghost sm press" data-detail="${esc(o.order_no)}" style="margin-left:6px">详细</button></div>
     ${o.cards && o.cards.length ? `<div class="mt8">${o.cards.map(c=>`<div class="flex mb8"><code class="codemono grow">${esc(c)}</code><button class="copybtn press" data-copy="${esc(c)}">复制</button></div>`).join("")}</div>` : ""}
   </div>`;
+}
+function bindDetail(){
+  document.querySelectorAll("[data-detail]").forEach(b=>b.addEventListener("click", ()=>showOrderDetail(b.dataset.detail)));
+}
+function showOrderDetail(no){
+  const o = _ordReg[no]; if(!o) return;
+  const stTxt = {done:"已完成（已发货）", pending:"待发货", cancelled:"已取消（已退款）"}[o.status] || o.status;
+  const ful = o.status === "pending" ? '<span class="st pending">等待发货中</span>'
+    : o.status === "done" ? (o.fulfill_time ? esc(o.fulfill_time) : "已发货（早期订单未记录时间）")
+    : "已取消，货款已原路退回买家余额";
+  const row = (k, v)=>`<div class="rowitem flex"><span class="small grow">${k}</span><span style="text-align:right">${v}</span></div>`;
+  $("#orderDetail").innerHTML =
+    row("商品", `<b>${esc(o.product_name)}</b>`) +
+    row("订单号", `<code class="codemono">${esc(o.order_no)}</code> <button class="copybtn press" data-copy="${esc(o.order_no)}">复制</button>`) +
+    (o.username || o.buyer ? row("买家", esc(o.username || o.buyer)) : "") +
+    row("单价", `<span class="num">${fmt(o.unit_price ?? (o.quantity ? o.total_price / o.quantity : o.total_price))}</span>`) +
+    row("数量", "× " + o.quantity) +
+    row("总价", `<b class="num">${fmt(o.total_price)}</b>`) +
+    row("订单状态", stTxt) +
+    row("付款时间", esc(o.pay_time || o.time || "")) +
+    row("发货时间", ful) +
+    (o.cards && o.cards.length ? `<div class="rowitem"><div class="small" style="margin-bottom:6px">卡密</div>${o.cards.map(c=>`<div class="flex mb8"><code class="codemono grow">${esc(c)}</code><button class="copybtn press" data-copy="${esc(c)}">复制</button></div>`).join("")}</div>` : "");
+  bindCopy();
+  openMask("orderMask");
 }
 async function loadOrders(){
   const box = $("#myOrders");
@@ -802,7 +838,7 @@ async function loadOrders(){
   try{
     const d = await api("/api/orders");
     box.innerHTML = d.list.length ? d.list.map(o=>orderHtml(o,false)).join("") : '<div class="empty">还没有订单，去商城逛逛</div>';
-    bindCopy();
+    bindCopy(); bindDetail();
   }catch(e){ box.innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
 }
 $("#queryBtn").addEventListener("click", async ()=>{
@@ -811,7 +847,7 @@ $("#queryBtn").addEventListener("click", async ()=>{
   box.innerHTML = '<div class="mut mt8">查询中…</div>';
   try{
     const d = await api("/api/order-query",{method:"POST",body:{order_no:no}});
-    box.innerHTML = orderHtml(d.order,false); bindCopy();
+    box.innerHTML = orderHtml(d.order,false); bindCopy(); bindDetail();
   }catch(e){ box.innerHTML = `<div class="mut mt8">${esc(e.message)}</div>`; }
 });
 
@@ -1043,10 +1079,11 @@ async function storeHomeView(){
   $("#storeBody").innerHTML = `
     <div class="stats">${cards.map(([k,v])=>`<div class="stat glass"><div class="k">${k}</div><div class="v num">${v}</div></div>`).join("")}</div>
     <div class="panel glass"><h3>分店订单（最近 100）</h3>
-      ${o.list.length ? o.list.map(x=>`<div class="rowitem"><div class="flex"><span class="grow">${esc(x.product_name)} ×${x.quantity}</span><b class="num">${fmt(x.total_price)}</b><span class="st ${x.status}">${x.status === "done" ? "已完成" : x.status === "pending" ? "待发货" : "已取消"}</span></div>
-      <div class="small">${esc(x.order_no)} · 买家 ${esc(x.buyer)} · ${esc(x.time)}</div></div>`).join("") : '<div class="empty">还没有订单，把你的分店链接发出去吧</div>'}</div>
+      ${o.list.length ? o.list.map(x=>{ _ordReg[x.order_no] = x; return `<div class="rowitem"><div class="flex"><span class="grow">${esc(x.product_name)} ×${x.quantity}</span><b class="num">${fmt(x.total_price)}</b><span class="st ${x.status}">${x.status === "done" ? "已完成" : x.status === "pending" ? "待发货" : "已取消"}</span></div>
+      <div class="small">${esc(x.order_no)} · 买家 ${esc(x.buyer)} · ${esc(x.time)} <button class="btn ghost sm press" data-detail="${esc(x.order_no)}">详细</button></div></div>`; }).join("") : '<div class="empty">还没有订单，把你的分店链接发出去吧</div>'}</div>
     <div class="panel glass"><h3>分店顾客（${u.list.length}）</h3>
       ${u.list.length ? u.list.map(x=>`<div class="rowitem flex"><span class="grow">${esc(x.username)} <span class="small">ID ${x.id}</span></span><span class="small">余额 ${fmt(x.balance)} · ${esc(x.time)} 注册</span></div>`).join("") : '<div class="empty">还没有顾客通过你的链接注册</div>'}</div>`;
+  bindDetail();
 }
 function catOptions(sel){
   return `<option value="">未分类</option>` + adminCats.map(c=>`<option value="${c.id}" ${String(c.id)===String(sel)?"selected":""}>${esc(c.name)}</option>`).join("");
@@ -1272,7 +1309,7 @@ async function adminOrdersView(st){
         <button class="btn sm press" data-ful="${o.id}">发货</button>
         <button class="btn danger sm press" data-ocx="${o.id}">取消并退款</button>
       </div>` : "")).join("") : '<div class="empty">暂无订单</div>'}</div></div>`;
-  bindCopy();
+  bindCopy(); bindDetail();
   document.querySelectorAll("[data-ost]").forEach(b=>b.addEventListener("click", ()=>adminOrdersView(b.dataset.ost)));
   document.querySelectorAll("[data-ful]").forEach(b=>b.addEventListener("click", async ()=>{
     try{ await api(`/api/admin/orders/${b.dataset.ful}/fulfill`,{method:"POST",body:{codes:$("#ful-"+b.dataset.ful).value}});
